@@ -1,11 +1,10 @@
 # Login window
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-	QApplication, QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, QWidget, QCheckBox, QDialog
+	QPushButton, QLabel, QLineEdit, QComboBox, 
+	 QGridLayout, QCheckBox, QDialog
 )
-from .utils import dlgError
 import os
 import sqlite3
 from . import PACKAGEDIR
