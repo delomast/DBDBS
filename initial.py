@@ -1,4 +1,4 @@
-from utils import *
+from src.utils import *
 import mysql.connector as connector
 
 createNewDB = False
@@ -17,3 +17,8 @@ else:
 
 
 cnx.close()
+
+def test():
+	print("somethign")
+
+
