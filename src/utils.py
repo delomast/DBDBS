@@ -81,7 +81,7 @@ def identifier_syntax_check(ident):
 def create_new_db(cnx, newDB):
 	if not identifier_syntax_check(newDB):
 		raise Exception("Database name has invalid syntax")
-
+	
 	with cnx.cursor() as curs:
 		curs.execute("SHOW DATABASES")
 		db_exists = False
@@ -91,5 +91,6 @@ def create_new_db(cnx, newDB):
 				cnx.consume_results()
 				break
 		if db_exists:
-			raise Exception("Database name already exists.")
+			return 1
 		curs.execute("CREATE DATABASE `%s`" % newDB)
+	return 0
