@@ -6,6 +6,9 @@ from PyQt6.QtWidgets import (
 	 QGridLayout, QWidget, QCheckBox, QDialog
 )
 from .utils import dlgError
+import os
+import sqlite3
+from . import PACKAGEDIR
 
 # main window
 class loginDialog(QDialog):
@@ -14,6 +17,12 @@ class loginDialog(QDialog):
 		super().__init__()
 		self.setWindowTitle("DBDBS")
 
+		# check if gui database exists and open
+		db_exists = os.path.exists(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"))
+		if db_exists:
+			self.gui_db = sqlite3.connect(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"),
+						detect_types=sqlite3.PARSE_DECLTYPES)
+
 		# define widgets
 		self.hostBox = QComboBox() # host address
 		self.hostBox.setEditable(True)
@@ -21,6 +30,11 @@ class loginDialog(QDialog):
 		self.userBox.setEditable(True)
 		self.dbBox = QComboBox() # database name
 		self.dbBox.setEditable(True)
+		# pull saved values for comboboxes
+		if db_exists:
+			self.hostBox.addItems([x[0] for x in self.gui_db.execute("SELECT host FROM server_info")])
+			self.updateComboBoxes()
+			self.hostBox.currentTextChanged.connect(self.updateComboBoxes)
 
 		self.pwBox = QLineEdit()
 		self.pwBox.setEchoMode(QLineEdit.EchoMode.Password)
@@ -59,4 +73,12 @@ class loginDialog(QDialog):
 	
 	def closeEvent(self, event):
 		self.reject()
-		
+	
+	def updateComboBoxes(self):
+		curs_host = self.gui_db.execute("SELECT host_id FROM server_info WHERE host = ?", (self.hostBox.currentText(),))
+		select_host_id = next(curs_host, [""])[0]
+		curs_host.close()
+		self.userBox.clear()
+		self.userBox.addItems([x[0] for x in self.gui_db.execute("SELECT user_name FROM user_info WHERE host_id = ?", (select_host_id,))])
+		self.dbBox.clear()
+		self.dbBox.addItems([x[0] for x in self.gui_db.execute("SELECT db_name FROM db_info WHERE host_id = ?", (select_host_id,))])
