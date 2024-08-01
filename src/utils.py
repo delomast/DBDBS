@@ -119,3 +119,31 @@ def getCursLociAlleles(cnx : connector, panelName : str):
 	curs = cnx.cursor()
 	curs.execute("SELECT intDBlocus_id, intDBlocus_name, intDBalleles FROM `%s` ORDER BY intDBlocus_id ASC" % panelName)
 	return curs
+
+# remove a partial or whole genotype panel if it is empty (no genotypes stored)
+# in case an error is encountered after some commits have already been made
+# this will remove any of the tables/rows made from this panel
+# it will only remove panels that do not contain genotype data and so
+# will not delete a panel with genotypes present
+def removePartialPanel(userInfo : dict, panelName : str):
+	cnxTemp = getConnection(userInfo)
+	with cnxTemp.cursor() as curs:
+		# make sure genotype table is empty, if it exists
+		curs.execute("SHOW TABLES LIKE 'intdb%s_gt'" % panelName)
+		if next(curs, [None])[0] is not None:
+			curs.execute("SELECT 1 FROM `intdb%s_gt` LIMIT 1" % panelName)
+			if next(curs, [None])[0] is not None:
+				raise Exception("Internal Error: tried to delete a panel containing genotypes")
+			# remove genotype table
+			curs.execute("DROP TABLE `intdb%s_gt`" % panelName)
+		# remove lookup table, if it exists
+		curs.execute("SHOW TABLES LIKE 'intdb%s_lt'" % panelName)
+		if next(curs, [None])[0] is not None:
+			curs.execute("DROP TABLE `intdb%s_lt`" % panelName)
+		# remove panel info table
+		curs.execute("SHOW TABLES LIKE '%s'" % panelName)
+		if next(curs, [None])[0] is not None:
+			curs.execute("DROP TABLE `%s`" % panelName)
+		# remove row from panel overview table
+		curs.execute("DELETE FROM intDBgeno_overview WHERE panel_name = '%s'" % panelName)
+	cnxTemp.close()

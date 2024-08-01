@@ -12,9 +12,10 @@ import sys
 import mysql.connector as connector
 import sqlite3
 from .login import loginDialog
-from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection
+from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection, removePartialPanel
 from . import PACKAGEDIR
 from .newPanelWindow import newPanelWindow
+from .importGenoWindow import importGenoWindow
 
 
 class interactWindow(QMainWindow):
@@ -38,70 +39,86 @@ class interactWindow(QMainWindow):
 		makePanel_button = QAction("Add a new genotyping panel", self)
 		makePanel_button.setStatusTip("This creates a new genotype panel in the current database")
 		makePanel_button.triggered.connect(self.makePanel)
+		# remove an empty genotyping panel
+		removeEmptyPanel_button = QAction("Remove an empty genotype panel", self)
+		removeEmptyPanel_button.setStatusTip("This can remove a genotype panel that does not have any genotypes in it")
+		removeEmptyPanel_button.triggered.connect(self.removeEmptyPanel)
 		
-		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button])
-
-		# repeatedly get login information until connected
-		# or user closes login dialog box (closes application)
-		while True:
-			login = loginDialog()
-			login.accepted.connect(self.dbConnect)
-			login.rejected.connect(sys.exit)
-			login.exec()
-			if hasattr(self, "cnx"):
-				break
+		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button])
 
 		# define widgets
-		importButton = QPushButton("Import data")
+		loginToServerButton = QPushButton("Login to server") # login button
+		loginToServerButton.clicked.connect(self.login)
+		importGenoButton = QPushButton("Import genotype data")
+		importGenoButton.clicked.connect(self.importGeno)
 		exportButton = QPushButton("Export data")
 
 
 
 		# Information displayed about the connection
-		cnxInfoLayout = QGridLayout()
+		self.cnxInfoLayout = QGridLayout()
 		# adding labels
-		labelText = ["Host address", "Username"]
-		labelValues = [self.cnx.server_host, self.cnx.user]
+		labelText = ["Host address", "Username", "Database name"]
+		# saving as connection info labels as attribute to allow later changing
+		self.labelValues = []
 		for i in range(0, len(labelText)):
-			cnxInfoLayout.addWidget(QLabel(labelText[i]), i, 0)
-			cnxInfoLayout.addWidget(QLabel(labelValues[i]), i, 1)
-		cnxInfoLayout.addWidget(QLabel("Database name"), 2, 0)
-		# saving as attribute to allow later changing
-		self.dbLabel = QLabel(self.cnx.database)
-		cnxInfoLayout.addWidget(self.dbLabel, 2, 1)
+			self.labelValues += [QLabel("")]
+			self.cnxInfoLayout.addWidget(QLabel(labelText[i]), i, 0)
+			self.cnxInfoLayout.addWidget(self.labelValues[i], i, 1)
+
 		cnxInfoWidget = QWidget()
-		cnxInfoWidget.setLayout(cnxInfoLayout)
+		cnxInfoWidget.setLayout(self.cnxInfoLayout)
 
 		# set up the layout of the Window
 		layout = QGridLayout()
 		layout.addWidget(cnxInfoWidget, 0, 0) # info in top left
+		layout.addWidget(loginToServerButton, 1, 0)
+		layout.addWidget(importGenoButton, 2, 0)
 		# TODO: add buttons for import and export functions here
 		# TODO: add define new tables here?
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
 
-	def dbConnect(self, userInfo):
+	def login(self):
+		login = loginDialog()
+		login.accepted.connect(self.dbConnect)
+		login.exec()
+
+	def dbConnect(self, userInfo : dict):
 		# try to connect to database
 		try:
 			self.cnx = getConnection(userInfo)
 		except Exception as e:
-			dlgError(parent = self, message="Failed to connect to MySQL database")
+			dlgError(parent = self, message = "Failed to connect to MySQL database")
+			return
 			# raise e
-		# if login was successful, store connection information, save if requested
-		if hasattr(self, "cnx"):
-			self.userInfo = userInfo
-			if userInfo["save"]:
-				saveInfo(userInfo=userInfo)
+		
+		# update labels
+		tempVal = [self.cnx.server_host, self.cnx.user, self.cnx.database]
+		for i in range(0, len(self.labelValues)):
+			self.labelValues[i].setText(tempVal[i])
+		
+		# store connection information for session
+		self.userInfo = userInfo
+		# save for later sessions if requested
+		if userInfo["save"]:
+			saveInfo(userInfo = userInfo)
 	
 	def makeNewDB(self, s = None):
+		if not hasattr(self, "cnx"):
+			dlgError(parent = self, message = "Error, not connected to a server")
+			return
 		# get database name
 		dbName = QInputDialog.getText(self, "Make new database", "Database name:")
 		# make and switch to that database
 		if dbName[1]:
 			self.create_new_db(dbName[0])
 
-	def switchDB(self, dbName = None):
+	def switchDB(self, s = None, dbName = None):
+		if not hasattr(self, "cnx"):
+			dlgError(parent = self, message="Error, not connected to a server")
+			return
 		if dbName is None:
 			# list all databases on server
 			# NOTE: this will later be updated to only list dbdbs databases
@@ -114,9 +131,15 @@ class interactWindow(QMainWindow):
 			else:
 				return
 		with self.cnx.cursor() as curs:
+			# test if database is a DBDBS database
+			curs.execute("SHOW TABLES FROM `%s` LIKE 'intDBpedigree'" % dbName)
+			if next(curs, [None])[0] is None:
+				dlgError(parent = self, message = "The selected database is not a DBDBS database.")
+				return
+			# switch
 			curs.execute("USE `%s`" % dbName)
-		self.userInfo["db"] = dbName
-		self.dbLabel.setText(self.cnx.database)
+		self.userInfo["db"] = self.cnx.database
+		self.labelValues[2].setText(self.cnx.database)
 	
 	# create a new database
 	# newDB: name of the new database
@@ -139,27 +162,45 @@ class interactWindow(QMainWindow):
 				return
 			# make database on MySQL server
 			curs.execute("CREATE DATABASE `%s`" % newDB)
-		
-		# switch to the new database
-		self.switchDB(dbName = newDB)
 
-		# create information tables and pedigree table
-		with self.cnx.cursor() as curs:
+			# switch to the new database
+			curs.execute("USE `%s`" % newDB)
+
+			# create information tables and pedigree table
 			with open(os.path.join(PACKAGEDIR, "sql/create_database.sql"), mode="r", encoding = "utf-8") as f:
 				for res in curs.execute(f.read(), multi = True):
 					pass # have to iterate through to execute all statements
-		return
+		
+		# update values
+		self.userInfo["db"] = self.cnx.database
+		self.labelValues[2].setText(self.cnx.database)	
 
-	# define a table for a new genotype panel
-	def makePanel(self, s = None):
+	# open window to define a new genotype panel
+	def makePanel(self):
 		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
 			dlgError(parent = self, message="Error, not connected to a database")
 			return
 		# open the add a new panel window
-		self.npWindow = newPanelWindow(userInfo = self.userInfo)
-		self.npWindow.show()
+		self.npWindow = newPanelWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.npWindow.exec()
+	
+	# remove a partial or full panel with no genotypes, if it exists
+	def removeEmptyPanel(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		panel = QInputDialog.getText(self, "Remove an empty panel", "Panel name:")
+		if panel[1] and panel[0] != "":
+			panel = panel[0]
+		else:
+			return
+		removePartialPanel(self.userInfo, panel)
 
-	# close the whole application when the main window closes
-	# prevents other windows remaining open when the main window is closed
-	def closeEvent(self, event):
-		sys.exit()
+	# open import genotypes window
+	def importGeno(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		self.igWindow = importGenoWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.igWindow.exec()
+	

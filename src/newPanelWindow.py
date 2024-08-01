@@ -2,22 +2,22 @@
 import mysql.connector as connector
 import re
 from PyQt6.QtWidgets import (
-	QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, QWidget, QCheckBox, QInputDialog,
-	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit
+	QPushButton, QLabel, QLineEdit, QComboBox, 
+	 QGridLayout, 
+	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
 )
 from .utils import (dlgError, countEqual, identifier_syntax_check, getCursLoci, 
-	getCursLociAlleles, getConnection, numBits, numGenotypes
+	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel
 )
 from collections import deque
 from itertools import combinations_with_replacement
-from itertools import product as cartProduct
 
-class newPanelWindow(QWidget):
-	def __init__(self, userInfo : dict):
+# using QDialog class and exec to block other windows - only one active window at a time
+class newPanelWindow(QDialog):
+	def __init__(self, cnx : connector, userInfo : dict):
 		super().__init__()
 		self.setWindowTitle("Make new panel")
-		self.cnx = getConnection(userInfo=userInfo)
+		self.cnx = cnx
 		self.userInfo = userInfo
 
 		# panel type, name, etc (info from user)
@@ -130,7 +130,6 @@ class newPanelWindow(QWidget):
 				return
 		with self.cnx.cursor() as curs:
 			curs.execute("SHOW TABLES")
-			tbl_exists = False
 			for x in curs:
 				if x[0] == self.panelNameBox.text():
 					self.cnx.consume_results()
@@ -336,6 +335,11 @@ class newPanelWindow(QWidget):
 						alleles = [x for x in alleles if len(x) > 0] # remove any empty strings (can happen when user uploads with no value)
 						if len(alleles) < 1: # skip if no alleles given
 							continue
+						# check that number of genotypes can be stored
+						if numGenotypes(len(alleles), self.ploidySpinnerBox.value()) > 255:
+							dlgError(parent=self, message="%s alleles for locus %s is too many to be stored in a Multiallelic panel." % (len(alleles), loc[1]))
+							removePartialPanel(self.userInfo, self.panelNameBox.text())
+							return
 						alleles.sort() # sort to make comparison to user input data easy (have to sort it on input as well)
 						geno_id = 1 # start at 1 b/c 0 is missing genotype
 						sqlState = "INSERT INTO `%s` %s VALUES " % ("intDB" + self.panelNameBox.text() + "_lt", colNameString)
@@ -383,9 +387,6 @@ class newPanelWindow(QWidget):
 					laCursor.close()
 			
 			cnx2.close() # close second connection
-
-
-
 
 		# close window
 		self.close()
