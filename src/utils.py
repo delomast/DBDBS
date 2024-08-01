@@ -2,6 +2,7 @@
 import os
 import re
 import mysql.connector as connector
+from math import log, comb, ceil
 import sqlite3
 from PyQt6.QtWidgets import (
 	QMessageBox
@@ -15,7 +16,7 @@ class dlgError(QMessageBox):
 		self.setText(message)
 		self.exec()
 
-def saveInfo(userInfo):
+def saveInfo(userInfo : dict):
 	# check if directory exists and make if not
 	if not os.path.isdir(os.path.join(PACKAGEDIR, "interface_db")):
 		os.mkdir(os.path.join(PACKAGEDIR, "interface_db"))
@@ -27,7 +28,7 @@ def saveInfo(userInfo):
 					detect_types=sqlite3.PARSE_DECLTYPES)
 	if not db_exists:
 		# create empty tables
-		with open(os.path.join(PACKAGEDIR, "sql/gui_initialize.sql"), mode="r") as f:
+		with open(os.path.join(PACKAGEDIR, "sql/gui_initialize.sql"), mode="r", encoding = "utf-8") as f:
 			gui_db.executescript(f.read())
 	
 	# add info to gui database
@@ -67,30 +68,54 @@ def saveInfo(userInfo):
 				curs_db.close()
 	gui_db.close()
 
-# check that does not begin with $ or end with space, len <= 64, no newlines
+# check that does not begin with $ or end with space, len <= 54, no newlines
+# does not start with "IntDB" (case insensitive)
 # this is a partial check for valid syntax for quoted identifiers
+# using one length for simplicity even though some (e.g., db name) could be longer
 # returns True for good syntax, False for bad
-def identifier_syntax_check(ident):
-	if not re.fullmatch("^.{1,64}$", ident) or re.search("^\\$| $", ident):
+def identifier_syntax_check(ident :  str) -> bool:
+	if not re.fullmatch("^.{1,54}$", ident) or re.search("^\\$| $|^IntDB", ident, flags=re.IGNORECASE):
 		return False
 	return True
 
-# create a new database
-# cnx: an open connection to a mysql server
-# newDB: name of the new database
-def create_new_db(cnx, newDB):
-	if not identifier_syntax_check(newDB):
-		raise Exception("Database name has invalid syntax")
-	
+# count number of items in an iterable that are equal to a single value
+def countEqual(items, matchValue) -> int:
+	count = 0
+	for i in items:
+		if i == matchValue:
+			count += 1
+	return count
+
+# calculate number of possible genotypes given the number
+#  of alleles and the ploidy
+def numGenotypes(numAlleles : int, ploidy : int) -> int:
+	return comb(numAlleles + ploidy - 1, ploidy)
+
+# calculate number of bits needed to represent a SNP including
+#  a value for a missing genotype
+def numBits(numAlleles : int, ploidy : int) -> int:
+	return ceil(log(numGenotypes(numAlleles, ploidy) + 1, 2))
+
+# get number of loci in a panel
+def getNumLoci(cnx : connector, panelName : str) -> int:
 	with cnx.cursor() as curs:
-		curs.execute("SHOW DATABASES")
-		db_exists = False
-		for x in curs:
-			if x[0] == newDB:
-				db_exists = True
-				cnx.consume_results()
-				break
-		if db_exists:
-			return 1
-		curs.execute("CREATE DATABASE `%s`" % newDB)
-	return 0
+		curs.execute("SELECT number_of_loci FROM intDBgeno_overview where panel_name = %s", (panelName,))
+		return curs.fetchone()[0]
+
+# function to start a new connection
+def getConnection(userInfo : dict):
+	cnx = connector.connect(user=userInfo["un"], password=userInfo["pw"], 
+						 host=userInfo["host"], database=userInfo["db"], autocommit=True)
+	return cnx
+
+# return a cursor with locus names in a panel ordered by auto_incrementing id number
+def getCursLoci(cnx : connector, panelName : str):
+	curs = cnx.cursor()
+	curs.execute("SELECT intDBlocus_name FROM `%s` ORDER BY intDBlocus_id ASC" % panelName)
+	return curs
+
+# return a cursor with locus id, locus name, and alleles in a panel ordered by auto_incrementing id number
+def getCursLociAlleles(cnx : connector, panelName : str):
+	curs = cnx.cursor()
+	curs.execute("SELECT intDBlocus_id, intDBlocus_name, intDBalleles FROM `%s` ORDER BY intDBlocus_id ASC" % panelName)
+	return curs

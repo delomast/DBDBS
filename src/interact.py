@@ -3,16 +3,18 @@
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-	QApplication, QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, QWidget, QCheckBox, QToolBar, QInputDialog
+	QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
+	 QGridLayout, QWidget, QCheckBox, QToolBar, QInputDialog,
+	 QFileDialog
 )
 import os
 import sys
 import mysql.connector as connector
 import sqlite3
 from .login import loginDialog
-from .utils import dlgError, saveInfo, identifier_syntax_check, create_new_db
+from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection
 from . import PACKAGEDIR
+from .newPanelWindow import newPanelWindow
 
 
 class interactWindow(QMainWindow):
@@ -28,11 +30,16 @@ class interactWindow(QMainWindow):
 		makeDB_button = QAction("Make new database", self)
 		makeDB_button.setStatusTip("This creates a new database on the connected server")
 		makeDB_button.triggered.connect(self.makeNewDB)
+		# switch databases action
 		switchDB_button = QAction("Switch databases", self)
 		switchDB_button.setStatusTip("This switches to a different database on the connected server")
 		switchDB_button.triggered.connect(self.switchDB)
+		# add a new genotyping panel
+		makePanel_button = QAction("Add a new genotyping panel", self)
+		makePanel_button.setStatusTip("This creates a new genotype panel in the current database")
+		makePanel_button.triggered.connect(self.makePanel)
 		
-		actionMenu.addActions([makeDB_button, switchDB_button])
+		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button])
 
 		# repeatedly get login information until connected
 		# or user closes login dialog box (closes application)
@@ -68,6 +75,8 @@ class interactWindow(QMainWindow):
 		# set up the layout of the Window
 		layout = QGridLayout()
 		layout.addWidget(cnxInfoWidget, 0, 0) # info in top left
+		# TODO: add buttons for import and export functions here
+		# TODO: add define new tables here?
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
@@ -75,30 +84,24 @@ class interactWindow(QMainWindow):
 	def dbConnect(self, userInfo):
 		# try to connect to database
 		try:
-			self.cnx = connector.connect(user=userInfo["un"], password=userInfo["pw"], 
-								host=userInfo["host"], database=userInfo["db"])
+			self.cnx = getConnection(userInfo)
 		except Exception as e:
-			dlgError(parent=self, message="Failed to connect to MySQL database")
+			dlgError(parent = self, message="Failed to connect to MySQL database")
 			# raise e
-		# if login was successful, save information if requested
-		if hasattr(self, "cnx") and userInfo["save"]:
-			saveInfo(userInfo=userInfo)
+		# if login was successful, store connection information, save if requested
+		if hasattr(self, "cnx"):
+			self.userInfo = userInfo
+			if userInfo["save"]:
+				saveInfo(userInfo=userInfo)
 	
 	def makeNewDB(self, s = None):
 		# get database name
 		dbName = QInputDialog.getText(self, "Make new database", "Database name:")
 		# make and switch to that database
 		if dbName[1]:
-			if not identifier_syntax_check(dbName[0]):
-				dlgError(message="Invalid syntax, database not created.")
-			else:
-				retStatus = create_new_db(self.cnx, dbName[0])
-				if retStatus == 1:
-					dlgError(message="A database with that name already exists on this server. Switching to it.")
-				self.switchDB(dbName=dbName[0])
-		self.dbLabel.setText(self.cnx.database)
-	
-	def switchDB(self, s = None, dbName = None):
+			self.create_new_db(dbName[0])
+
+	def switchDB(self, dbName = None):
 		if dbName is None:
 			# list all databases on server
 			# NOTE: this will later be updated to only list dbdbs databases
@@ -112,4 +115,51 @@ class interactWindow(QMainWindow):
 				return
 		with self.cnx.cursor() as curs:
 			curs.execute("USE `%s`" % dbName)
+		self.userInfo["db"] = dbName
 		self.dbLabel.setText(self.cnx.database)
+	
+	# create a new database
+	# newDB: name of the new database
+	def create_new_db(self, newDB : str) -> int:
+		if not identifier_syntax_check(newDB):
+			dlgError(parent=self, message="Database name has invalid syntax")
+			return
+		
+		with self.cnx.cursor() as curs:
+			curs.execute("SHOW DATABASES")
+			db_exists = False
+			for x in curs:
+				if x[0] == newDB:
+					db_exists = True
+					self.cnx.consume_results()
+					break
+			if db_exists:
+				dlgError(parent = self, message="A database with that name already exists on this server. Switching to it.")
+				self.switchDB(dbName = newDB)
+				return
+			# make database on MySQL server
+			curs.execute("CREATE DATABASE `%s`" % newDB)
+		
+		# switch to the new database
+		self.switchDB(dbName = newDB)
+
+		# create information tables and pedigree table
+		with self.cnx.cursor() as curs:
+			with open(os.path.join(PACKAGEDIR, "sql/create_database.sql"), mode="r", encoding = "utf-8") as f:
+				for res in curs.execute(f.read(), multi = True):
+					pass # have to iterate through to execute all statements
+		return
+
+	# define a table for a new genotype panel
+	def makePanel(self, s = None):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		# open the add a new panel window
+		self.npWindow = newPanelWindow(userInfo = self.userInfo)
+		self.npWindow.show()
+
+	# close the whole application when the main window closes
+	# prevents other windows remaining open when the main window is closed
+	def closeEvent(self, event):
+		sys.exit()
