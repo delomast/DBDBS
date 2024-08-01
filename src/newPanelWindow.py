@@ -376,6 +376,10 @@ class newPanelWindow(QDialog):
 						alleles = [x for x in alleles if len(x) > 0] # remove any empty strings (can happen when user uploads with no value)
 						if len(alleles) < 1: # skip if no alleles given
 							continue
+						if len(alleles) > 255:
+							dlgError(parent=self, message="%s alleles for locus %s is too many to be stored in a Hyperallelic panel." % (len(alleles), loc[1]))
+							removePartialPanel(self.userInfo, self.panelNameBox.text())
+							return
 						allele_id = 1 # start at 1 b/c 0 is missing genotype
 						sqlState = "INSERT INTO `%s` %s VALUES " % ("intDB" + self.panelNameBox.text() + "_lt", colNameString)
 						for a in alleles:
