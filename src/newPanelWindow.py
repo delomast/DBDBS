@@ -20,6 +20,8 @@ class newPanelWindow(QDialog):
 		self.cnx = cnx
 		self.userInfo = userInfo
 
+		self.setMinimumSize(200, 200) # trying to avoid :"Unable to set geometry" warning
+
 		# panel type, name, etc (info from user)
 		self.panelTypeBox = QComboBox()
 		self.panelTypeBox.addItems(["Biallelic", "Multiallelic", "Hyperallelic"])
@@ -28,6 +30,7 @@ class newPanelWindow(QDialog):
 		self.selectDefFile = QPushButton("Select definition file")
 		self.selectDefFile.clicked.connect(self.onClickDefFile)
 		self.curFileSelected = QLabel("")
+		self.curFileSelected.setWordWrap(True)
 		self.ploidySpinnerBox = QSpinBox()
 		self.ploidySpinnerBox.setRange(1, 255) # limited by TINYINT UNSIGNED in lookup table for alt allele copies
 		self.ploidySpinnerBox.setValue(2) # default is diploid
@@ -269,19 +272,20 @@ class newPanelWindow(QDialog):
 				# determine number of bits needed
 				nBits = numBits(2, self.ploidySpinnerBox.value())
 				# statement for defining a column in CREATE TABLE
-				baseState = " `{}` " + ("BIT(%s) NOT NULL," % nBits)
+				# default is missing genotype, given by (ploidy + 1)
+				baseState = " `{}` " + ("BIT(%s) NOT NULL DEFAULT b'%s'," % (nBits, format(self.ploidySpinnerBox.value() + 1, "0%sb" % nBits)))
 				# statement for adding a column in ALTER TABLE
 				baseState2 = " ADD COLUMN" + baseState
 			elif self.panelTypeBox.currentText() == "Multiallelic":
-				baseState = " `{}` TINYINT UNSIGNED NOT NULL,"
+				baseState = " `{}` TINYINT UNSIGNED NOT NULL DEFAULT 0," # default of 0 for missing genotype
 				baseState2 = " ADD COLUMN" + baseState
 			elif self.panelTypeBox.currentText() == "Hyperallelic":
 				baseState = ""
 				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					baseState += " `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL," % i)
+					baseState += " `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
 				baseState2 = ""
 				for i in range(0, self.ploidySpinnerBox.value()):
-					baseState2 += " ADD COLUMN `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL," % i)
+					baseState2 += " ADD COLUMN `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
 
 			# get second connection and cursor to loop through loci without storing all 
 			# locus names in memory

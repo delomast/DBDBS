@@ -147,3 +147,104 @@ def removePartialPanel(userInfo : dict, panelName : str):
 		# remove row from panel overview table
 		curs.execute("DELETE FROM intDBgeno_overview WHERE panel_name = '%s'" % panelName)
 	cnxTemp.close()
+
+# checking which inds are in the pedigree already
+# returns a tuple of two tuples, first has inds in 
+# the pedigree, second has inds not in the pedigree
+def indsInPedigree(cnx : connector, inds : list):
+	with cnx.cursor() as curs:
+		curs.execute("SELECT ind FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
+		inPed = [x[0] for x in curs]
+	outPed = [x for x in inds if x not in inPed]
+	return (tuple(inPed), tuple(outPed))
+
+# checking which inds are in a table already
+# returns a tuple of two tuples, first has inds in 
+# the table, second has inds not in the table
+# assumes table has ind_id column which
+# should be linked as foreign key to pedigree table
+def indsInTable(cnx : connector, inds : list, panelName : str):
+	with cnx.cursor() as curs:
+		sqlState = """
+		SELECT intDBpedigree.ind
+		FROM intDBpedigree
+		INNER JOIN `%s` AS panel ON intDBpedigree.ind_id=panel.ind_id
+		WHERE intDBpedigree.ind IN (%s)
+		""" % ("intDB" + panelName + "_gt", ",".join(["'%s'" % x for x in inds]))
+		curs.execute(sqlState)
+		inPed = [x[0] for x in curs]
+	outPed = [x for x in inds if x not in inPed]
+	return (tuple(inPed), tuple(outPed))
+
+# return a list of individual names from a 2col format file
+# and a boolean of whether there are duplicate ind names
+def getIndsFromFile(fileName : str, fileType : str) -> list:
+	if fileType == "2col":
+		with open(fileName, "r") as f:
+			header = f.readline() # skip header
+			inds = [line.rstrip("\n").split("\t")[0] for line in f]
+		# heck for duplicates
+		if len(inds) > len(set(inds)):
+			dups = True
+		else:
+			dups = False
+	else:
+		raise Exception("Internal error: file type not supported by getIndsFromFile")
+	return [tuple(inds), dups]
+
+# add individuals to the pedigree (optionally sire and dam information as well)
+# inds, sire, dam are either tuples or lists
+def addToPedigree(cnx: connector, inds, sire = None, dam = None):
+	if len(inds) == 0:
+		return 0
+	with cnx.cursor() as curs:
+		if sire is None and dam is None:
+			# just add inds
+			sqlState = "INSERT INTO intDBpedigree (ind) VALUES"
+			for name in inds:
+				sqlState += " ('%s')," % name
+			curs.execute(sqlState.rstrip(","))
+		elif sire is None:
+			if len(inds) != len(dam):
+				return 1
+			pass
+		elif dam is None:
+			if len(inds) != len(sire):
+				return 1
+			pass
+		else:
+			if len(inds) != len(sire) or len(inds) != len(dam):
+				return 1
+			pass
+	return 0
+
+# get ind_id from database and return dict
+# key of ind name, value of ind_id
+def getIndIDdict(cnx : connector, inds : list):
+	with cnx.cursor() as curs:
+		curs.execute("SELECT ind, ind_id FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
+		indID = {}
+		for x in curs:
+			indID[x[0]] = x[1]
+	return indID
+
+# for a multiallelic panel
+# make a list, in order of loci,
+# with each entry being a dict of
+# key = (allele1, allele2, ...) and value of genotype_id 
+def getGenoDict_multi(cnx : connector, panelName : str, loci : list, ploidy : int):
+	# build blank list of dictionaries
+	outListDict = [{} for x in loci]
+	sqlState = "SELECT lt.genotype_id," + ",".join(["lt.allele_%s" % x for x in range(1, ploidy + 1)])
+	sqlState += " FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
+	with cnx.cursor() as curs:
+		for i in range(0, len(loci)):
+			# get locus specific lookup table
+			curs.execute(sqlState % loci[i])
+			# add to dictionary
+			for x in curs:
+				# key is ordered alleles in a tuple, value is genotype code
+				outListDict[i][tuple(x[1:])] = x[0]
+	return outListDict
+
+
