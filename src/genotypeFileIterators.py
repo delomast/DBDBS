@@ -17,7 +17,7 @@ class genoIter_2col:
 		self.loci = self.line.rstrip("\n").split("\t")
 		self.loci = [self.loci[i] for i in range(1, len(self.loci) - 1, ploidy)] # remove ind name column and allele 2+ names
 		if strip_a1:
-			self.loci = [re.sub(r"[\.-][aA]1$", "", x) for x in self.loci]
+			self.loci = [re.sub(r"[\.-_][aA]1$", "", x) for x in self.loci]
 
 	def __iter__(self):
 		return self

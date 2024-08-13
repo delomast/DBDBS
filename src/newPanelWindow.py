@@ -282,10 +282,10 @@ class newPanelWindow(QDialog):
 			elif self.panelTypeBox.currentText() == "Hyperallelic":
 				baseState = ""
 				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					baseState += " `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
+					baseState += " `{0}" + ("_a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
 				baseState2 = ""
 				for i in range(0, self.ploidySpinnerBox.value()):
-					baseState2 += " ADD COLUMN `{0}" + (".a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
+					baseState2 += " ADD COLUMN `{0}" + ("_a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
 
 			# get second connection and cursor to loop through loci without storing all 
 			# locus names in memory

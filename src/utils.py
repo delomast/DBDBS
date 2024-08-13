@@ -237,6 +237,7 @@ def getGenoDict_multi(cnx : connector, panelName : str, loci : list, ploidy : in
 	outListDict = [{} for x in loci]
 	sqlState = "SELECT lt.genotype_id," + ",".join(["lt.allele_%s" % x for x in range(1, ploidy + 1)])
 	sqlState += " FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
+	missTuple = tuple(["" for x in range(0, ploidy)]) # empty string tuple representing missing genotype
 	with cnx.cursor() as curs:
 		for i in range(0, len(loci)):
 			# get locus specific lookup table
@@ -245,6 +246,24 @@ def getGenoDict_multi(cnx : connector, panelName : str, loci : list, ploidy : in
 			for x in curs:
 				# key is ordered alleles in a tuple, value is genotype code
 				outListDict[i][tuple(x[1:])] = x[0]
+			# add missing genotype value
+			outListDict[i][missTuple] = 0 # 0 in table is missing genotype
 	return outListDict
 
-
+# for a hyperallelic panel
+# make a list, in order of loci,
+# with each entry being a dict of
+# key = (allele) and value of allele_id 
+def getAlleleDict_hyper(cnx : connector, panelName : str, loci : list, ploidy : int):
+	outListDict = [{} for x in loci]
+	sqlState = "SELECT lt.allele_id,lt.allele FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
+	with cnx.cursor() as curs:
+		for i in range(0, len(loci)):
+			# get locus specifi allele lookup table
+			curs.execute(sqlState % loci[i])
+			# add all alleles to dictionary
+			for x in curs:
+				outListDict[i][x[1]] = x[0]
+			# add missing allele value
+			outListDict[i][""] = 0
+	return outListDict

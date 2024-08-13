@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
 )
 from .utils import (dlgError, countEqual, identifier_syntax_check, getCursLoci, 
 	getCursLociAlleles, getConnection, numBits, numGenotypes, indsInPedigree,
-	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoDict_multi
+	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoDict_multi,
+	getAlleleDict_hyper
 )
 from .genotypeFileIterators import *
 from itertools import combinations_with_replacement
@@ -59,10 +60,10 @@ class importGenoWindow(QDialog):
 		# 2col: tab-delimited, 2 column per call
 		# first col is individual name
 		# with header line
-		# locus names pulled from header for first column, optionally stripping [\.-][aA]1
+		# locus names pulled from header for first column, optionally stripping [\.-_][aA]1
 		self.fileFormat.addItems(["2col", "PLINK ped and map", "formatotro"])
 		self.fileFormat.currentTextChanged.connect(self.changeFormat)
-		self.stripA1Checkbox = QCheckBox(r"Drop [\.-][aA]1")
+		self.stripA1Checkbox = QCheckBox(r"Drop [\.-_][aA]1")
 
 		# check for new individuals button
 		self.checkIndsButton = QPushButton("Check if individuals are in the database")
@@ -147,7 +148,6 @@ class importGenoWindow(QDialog):
 	def verifyAlleles(self):
 		# get alleles for each locus defined in panel
 		panelAlleles = {} # dict with key of locusName, set of valid alleles
-		panelPloidy = int(self.panelPloidyLabel.text())
 		with self.cnx.cursor() as curs:
 			if self.panelTypeLabel.text() == "Multiallelic":
 				sqlState = "SELECT DISTINCT panelInfo.intDBlocus_name, lookup.allele_1 FROM `{0}` AS panelInfo LEFT JOIN `intDB{0}_lt` AS lookup ON panelInfo.intDBlocus_id = lookup.locus_id"
@@ -170,20 +170,14 @@ class importGenoWindow(QDialog):
 						panelAlleles[res[0]] = {res[1]}
 
 		# get alleles for each locus in input file
-		if self.fileFormat.currentText() == "2col":
-			with open(self.inputFile.text(), "r") as f:
-				# get locus names in order from header line
-				h = f.readline().rstrip("\n").split("\t")
-				h = [h[i] for i in range(1, len(h) - 1, panelPloidy)] # remove ind name column and allele 2 names
-				if self.stripA1Checkbox.isChecked():
-					h = [re.sub(r"[\.-][aA]1$", "", x) for x in h]
-				# list of sets, one set for each locus, in same order as locus names in h
-				inputAlleles = [set() for x in range(0, len(h))]
-				for line in f:
-					sep = line.rstrip("\n").split("\t")
-					for i in range(0, len(inputAlleles)):
-						for j in range(1, panelPloidy + 1):
-							inputAlleles[i].add(sep[j + (i*panelPloidy)])
+		genoIter = self.getGenoIter()
+		h = genoIter.loci
+		# list of sets, one set for each locus, in same order as locus names in h
+		inputAlleles = [set() for x in range(0, len(h))]
+		for g in genoIter:
+			for i in range(0, len(inputAlleles)):
+				for j in range(0, self.panelPloidy):
+					inputAlleles[i].add(g[1][j + (i*self.panelPloidy)])
 
 		# remove alleles that are already defined in the panel
 		# and save any new ones
@@ -219,7 +213,6 @@ class importGenoWindow(QDialog):
 			dlgError(parent=self, message="Cannot add new alleles to loci in a biallelic panel")
 			return
 		
-		panelPloidy = int(self.panelPloidyLabel.text())
 		with self.cnx.cursor() as curs:
 			# for each locus with new alleles
 			for locName,newA in self.newAlleles.items():
@@ -239,7 +232,7 @@ class importGenoWindow(QDialog):
 				curs.execute(sqlState.format())
 				curAlleles = [x[0] for x in curs]
 				# check that there is space
-				if self.panelTypeLabel.text() == "Multiallelic" and numGenotypes(len(curAlleles) + len(newA), panelPloidy) > 255:
+				if self.panelTypeLabel.text() == "Multiallelic" and numGenotypes(len(curAlleles) + len(newA), self.panelPloidy) > 255:
 					dlgError(parent=self, message="skipping locus %s: %s is too many alleles to be stored in a Multiallelic panel." % (locName, len(curAlleles) + len(newA)))
 					continue
 				if self.panelTypeLabel.text() == "Hyperallelic" and (len(curAlleles) + len(newA)) > 255:
@@ -248,12 +241,12 @@ class importGenoWindow(QDialog):
 
 				# add
 				if self.panelTypeLabel.text() == "Multiallelic":
-					colNameString = "(" + ",".join(["locus_id", "genotype_id"] + ["allele_%s" % i for i in range(1, panelPloidy + 1)]) + ")"
+					colNameString = "(" + ",".join(["locus_id", "genotype_id"] + ["allele_%s" % i for i in range(1, self.panelPloidy + 1)]) + ")"
 					sqlState = "INSERT INTO `%s` %s VALUES" % ("intDB" + self.panelComboBox.currentText() + "_lt", colNameString)
-					newGeno_id = numGenotypes(len(curAlleles), panelPloidy) + 1
+					newGeno_id = numGenotypes(len(curAlleles), self.panelPloidy) + 1
 					for a in newA:
-						for i in range(0, panelPloidy):
-							copiesNewA = [a for x in range(0, panelPloidy - i)]
+						for i in range(0, self.panelPloidy):
+							copiesNewA = [a for x in range(0, self.panelPloidy - i)]
 							genos = [copiesNewA + list(x) for x in combinations_with_replacement(curAlleles, i)]
 							for j in range(0, len(genos)):
 								genos[j].sort() # make sure alleles in genotypes are sorted
@@ -285,8 +278,9 @@ class importGenoWindow(QDialog):
 			info =[str(x) for x in curs.fetchone()]
 			# update panel type label
 			self.panelTypeLabel.setText(info[2])
-			# update panel ploidy label
+			# update panel ploidy label and int
 			self.panelPloidyLabel.setText(info[1])
+			self.panelPloidy = int(info[1])
 			# update number of loci label
 			self.panelSizeLabel.setText(info[0])
 
@@ -302,6 +296,14 @@ class importGenoWindow(QDialog):
 			return
 		self.inputFile.setText(tempFile)
 		self.clearNewAlleles()
+	
+	# return a genotype iterator
+	def getGenoIter(self):
+		if self.fileFormat.currentText() == "2col":
+			genoIter = genoIter_2col(self.inputFile.text(), self.stripA1Checkbox.isChecked(), self.panelPloidy)
+		else:
+			raise Exception("Interal error, not set up for this file format")
+		return genoIter
 
 	# check if individuals are 1) in pedigee an 2) in genotype panel
 	def checkNewInds(self):
@@ -346,13 +348,9 @@ class importGenoWindow(QDialog):
 
 	def checkLociNames(self, s = None, interact = True):
 		# get locus names from import file
-		if self.fileFormat.currentText() == "2col":
-			with open(self.inputFile.text(), "r") as f:
-				# get locus names in order from header line
-				h = f.readline().rstrip("\n").split("\t")
-			h = [h[i] for i in range(1, len(h) - 1, int(self.panelPloidyLabel.text()))] # remove ind name column and allele 2+ names
-			if self.stripA1Checkbox.isChecked():
-				h = [re.sub(r"[\.-][aA]1$", "", x) for x in h]
+		genoIter = self.getGenoIter()
+		h = genoIter.loci
+		del genoIter
 		if len(h) < 1:
 			if interact:
 				dlgError(parent=self, message="No loci in the file")
@@ -425,7 +423,6 @@ class importGenoWindow(QDialog):
 	# import genotypes
 	def importGenotypes(self):
 		# make sure all loci (and no extras) are present
-		panelPloidy = int(self.panelPloidyLabel.text())
 		if self.checkLociNames(interact = False) != 0:
 			dlgError(parent=self, message="Problem with locus names. Run \"Verify locus names\"")
 		
@@ -444,29 +441,35 @@ class importGenoWindow(QDialog):
 		indIDlookup = getIndIDdict(self.cnx, inds)
 		
 		# initiate iterator for selected file type
-		if self.fileFormat.currentText() == "2col":
-			genoIter = genoIter_2col(self.inputFile.text(), self.stripA1Checkbox.isChecked(), panelPloidy)
-		else:
-			dlgError(parent=self, message="File format not set up for this operation")
-
+		genoIter = self.getGenoIter()
+		
 		# add new genotypes
 		with self.cnx.cursor() as curs:
 			if self.panelTypeLabel.text() == "Multiallelic":
 				# list in order of genoIter.loci, values are dict[(allele_1,allele_2,...)] = genotype_id
-				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, panelPloidy)
-				colNames = "ind_id," + ",".join(genoIter.loci)
+				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+				colNames = "ind_id," + ",".join(["`%s`" % x for x in genoIter.loci])
 				sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
 				for g in genoIter:
 					# change alleles to genotype codes
 					# have to sort and then convert to tuple (b/c lists aren't hashable)
 					# then convert to str for .join in the next line
-					genoIDs = [str(genoListDict[i // panelPloidy][tuple(sorted(g[1][i:(i+panelPloidy)]))]) for i in range(0, len(g[1]), panelPloidy)]
+					genoIDs = [str(genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))]) for i in range(0, len(g[1]), self.panelPloidy)]
 					# add ind_id, genotype_id(s) to table
-					print(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoIDs)))
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoIDs)))
 			elif self.panelTypeLabel.text() == "Hyperallelic":
-				
-				pass
+				# list in order of genoIter.loci
+				alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+				colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
+				colNames = [",".join(colNames).format(x) for x in genoIter.loci]
+				colNames = "ind_id," + ",".join(colNames)
+				sqlState = "INSERT INTO intDB%s_gt (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
+				for g in genoIter:
+					# change alleles to allele codes
+					# convert to str for .join in next line
+					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
+					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
+					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs)))
 			else:
 				# biallelic
 				
