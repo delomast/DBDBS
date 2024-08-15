@@ -156,18 +156,18 @@ def indsInPedigree(cnx : connector, inds : list):
 # the table, second has inds not in the table
 # assumes table has ind_id column which
 # should be linked as foreign key to pedigree table
-def indsInTable(cnx : connector, inds : list, panelName : str):
+def indsInTable(cnx : connector, inds : list, tableName : str):
 	with cnx.cursor() as curs:
 		sqlState = """
 		SELECT intDBpedigree.ind
 		FROM intDBpedigree
 		INNER JOIN `%s` AS panel ON intDBpedigree.ind_id=panel.ind_id
 		WHERE intDBpedigree.ind IN (%s)
-		""" % ("intDB" + panelName + "_gt", ",".join(["'%s'" % x for x in inds]))
+		""" % (tableName, ",".join(["'%s'" % x for x in inds]))
 		curs.execute(sqlState)
-		inPed = [x[0] for x in curs]
-	outPed = [x for x in inds if x not in inPed]
-	return (tuple(inPed), tuple(outPed))
+		inTable = [x[0] for x in curs]
+	outTable = [x for x in inds if x not in inTable]
+	return (tuple(inTable), tuple(outTable))
 
 # return a list of individual names from a 2col format file
 # and a boolean of whether there are duplicate ind names

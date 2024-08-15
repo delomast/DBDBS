@@ -24,7 +24,7 @@ class importGenoWindow(QDialog):
 		self.cnx = cnx
 		self.userInfo = userInfo
 
-		self.setMinimumSize(400, 400) # trying to avoid :"Unable to set geometry" warning
+		self.setMinimumSize(500, 400) # trying to avoid :"Unable to set geometry" warning
 
 		# panel selection dropbox
 		self.panelComboBox = QComboBox()
@@ -328,7 +328,7 @@ class importGenoWindow(QDialog):
 			genoStatus = (tuple(), tuple(inds))
 		else:
 			# check if inds in pedigree are in the genotype panel
-			genoStatus = indsInTable(self.cnx, pedStatus[0], self.panelComboBox.currentText())
+			genoStatus = indsInTable(self.cnx, pedStatus[0], "intDB" + self.panelComboBox.currentText() + "_gt")
 		
 		# show summary message and ask whether to write a report
 		writeReportBox = QMessageBox(parent=self)
@@ -432,6 +432,10 @@ class importGenoWindow(QDialog):
 
 	# import genotypes
 	def importGenotypes(self):
+		if not self.updateRadio.isChecked() and not self.addNewRadio.isChecked():
+			dlgError(parent=self, message="You must indicate either add new genotypes or update existing genotypes")
+			return
+		
 		# check if alleles have been validated
 		if not hasattr(self, "newAlleles"):
 			msgTxt = "You have not checked that the allele values match what is expected. "
@@ -457,7 +461,10 @@ class importGenoWindow(QDialog):
 			# file does not contain all loci
 			askBox = QMessageBox(parent=self)
 			askBox.setWindowTitle("Confirm proceed")
-			askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for these loci will be assumed to be missing. Do you want to proceed with the import?")
+			if self.addNewRadio.isChecked():
+				askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for the missing loci will be saved as missing genotypes. Do you want to proceed with the import?")
+			else:
+				askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for the missing loci will not be updated. Do you want to proceed with the import?")
 			askBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 			proceed = askBox.exec()
 			if proceed == QMessageBox.StandardButton.No:
@@ -470,28 +477,58 @@ class importGenoWindow(QDialog):
 			return
 		inds = inds[0]
 		indsInPed = indsInPedigree(self.cnx, inds)
+
+		# make sure all are in the pedigree already if updating genotypes
+		if self.updateRadio.isChecked() and len(indsInPed[1]) > 0:
+			dlgError(parent=self, message="You are trying to update genotypes but one or more individuals is not in the pedigree")
+			return
+		
 		retValue = addToPedigree(self.cnx, indsInPed[1], sire = None, dam = None)
 		if retValue != 0:
 			raise Exception("Internal error")
-
+		
+		# check for presence of individuals in the genotype table
+		tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")
+		if self.addNewRadio.isChecked() and len(tableCheck[0]) > 0:
+			dlgError(parent=self, message="You are trying to add new genotypes but one or more individuals is already in the genotype table")
+			return
+		elif self.updateRadio.isChecked() and len(tableCheck[1]) > 0:
+			dlgError(parent=self, message="You are trying to update genotypes but one or more individuals is not already in the genotype table")
+			return
+		
 		# build dictionary of ind names and ind_id
 		indIDlookup = getIndIDdict(self.cnx, inds)
 		
 		# initiate iterator for selected file type
 		genoIter = self.getGenoIter()
+
+		if self.addNewRadio.isChecked():
+			# add new genotypes
+			self.addNewGenos(indIDlookup, genoIter)
+		else:
+			# update existing genotypes
+			self.updateGenos(indIDlookup, genoIter)
 		
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Genotype import")
+		messageBox.setText("Genotype import complete")
+		messageBox.exec()
+		self.close()
+
+	def addNewGenos(self, indIDlookup, genoIter):
 		# add new genotypes
 		with self.cnx.cursor() as curs:
+			sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES "
 			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
 			if self.panelTypeLabel.text() == "Multiallelic":
 				# list in order of genoIter.loci, values are dict[(allele_1,allele_2,...)] = genotype_id
 				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
 				colNames = "ind_id," + ",".join(["`%s`" % x for x in genoIter.loci])
-				sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
 				for g in genoIter:
 					# change alleles to genotype codes
-					# have to sort and then convert to tuple (b/c lists aren't hashable)
-					# then convert to str for .join in the next line
+					# have to sort alleles and then convert to tuple (b/c lists aren't hashable) for lookup
+					# then convert to str for the next line
 					genoIDs = [str(genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))]) for i in range(0, len(g[1]), self.panelPloidy)]
 					# add ind_id, genotype_id(s) to table
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoIDs)))
@@ -501,10 +538,10 @@ class importGenoWindow(QDialog):
 				colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
 				colNames = [",".join(colNames).format(x) for x in genoIter.loci]
 				colNames = "ind_id," + ",".join(colNames)
-				sqlState = "INSERT INTO intDB%s_gt (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
 				for g in genoIter:
 					# change alleles to allele codes
-					# convert to str for .join in next line
+					# convert to str for the next line
 					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
 					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs)))
@@ -515,21 +552,51 @@ class importGenoWindow(QDialog):
 				# generate format string with matching number of binary digits
 				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
 				colNames = "ind_id," + ",".join(["`" + x + "`" for x in genoIter.loci])
-				sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
 				for g in genoIter:
 					# change alleles to bit code
 					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoBitCodes)))
 		
-		messageBox = QMessageBox(parent=self)
-		messageBox.setWindowTitle("Genotype import")
-		messageBox.setText("Genotype import complete")
-		messageBox.exec()
-		self.close()
+	def updateGenos(self, indIDlookup, genoIter):
+		# add new genotypes
+		with self.cnx.cursor() as curs:
+			sqlState = "UPDATE `intDB%s_gt` SET " % self.panelComboBox.currentText()
+			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
+			if self.panelTypeLabel.text() == "Multiallelic":
+				# list in order of genoIter.loci, values are dict[(allele_1,allele_2,...)] = genotype_id
+				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+				for g in genoIter:
+					# change alleles to genotype codes
+					# have to sort alleles and then convert to tuple (b/c lists aren't hashable) for lookup
+					# then convert to str for the next line
+					genoIDs = [str(genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))]) for i in range(0, len(g[1]), self.panelPloidy)]
+					# build long SET section of the statement
+					# add WHERE statement (VERY important, otherwise all rows are overwritten)
+					# update table
+					curs.execute(sqlState + ",".join(["`" + genoIter.loci[i] + "`" + "=" + genoIDs[i] for i in range(0, len(genoIDs))]) + (" WHERE ind_id = %s" % indIDlookup[g[0]]))
+			elif self.panelTypeLabel.text() == "Hyperallelic":
 
-		## TODO test import of genotypes with all panel types diploid and triploid
-
-		### updating genotypes
-		###### different function - can skip pedigree check
-
-	
+				raise Exception
+				# list in order of genoIter.loci
+				alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+				colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
+				colNames = [",".join(colNames).format(x) for x in genoIter.loci]
+				colNames = "ind_id," + ",".join(colNames)
+				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
+				for g in genoIter:
+					# change alleles to allele codes
+					# convert to str for the next line
+					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
+					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
+					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs)))
+			else:
+				# biallelic
+				# list in order of genoIter.loci, values are tuple (refAllele, altAllele)
+				refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), genoIter.loci)
+				# generate format string with matching number of binary digits
+				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
+				for g in genoIter:
+					# change alleles to bit code
+					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
+					curs.execute(sqlState + ",".join(["`" + genoIter.loci[i] + "`" + "=" + genoBitCodes[i] for i in range(0, len(genoBitCodes))]) + (" WHERE ind_id = %s" % indIDlookup[g[0]]))
