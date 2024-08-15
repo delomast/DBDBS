@@ -8,10 +8,10 @@ from PyQt6.QtWidgets import (
 	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog,
 	 QRadioButton, QHBoxLayout, QMessageBox
 )
-from .utils import (dlgError, countEqual, identifier_syntax_check, getCursLoci, 
+from .utils import (dlgError, identifier_syntax_check, getCursLoci, 
 	getCursLociAlleles, getConnection, numBits, numGenotypes, indsInPedigree,
 	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoDict_multi,
-	getAlleleDict_hyper
+	getAlleleDict_hyper, getRefAlt, genoToAltCopies
 )
 from .genotypeFileIterators import *
 from itertools import combinations_with_replacement
@@ -23,6 +23,8 @@ class importGenoWindow(QDialog):
 		self.setWindowTitle("Import genotypes")
 		self.cnx = cnx
 		self.userInfo = userInfo
+
+		self.setMinimumSize(400, 400) # trying to avoid :"Unable to set geometry" warning
 
 		# panel selection dropbox
 		self.panelComboBox = QComboBox()
@@ -116,14 +118,13 @@ class importGenoWindow(QDialog):
 
 		# set up action button layout
 		self.gridLayout2 = QGridLayout()
-		self.gridLayout2.addWidget(self.alleleVerifyButton, 0, 0)
-		self.gridLayout2.addWidget(self.addNewAllelesButton, 0, 1)
+		self.gridLayout2.addWidget(self.checkLociButton, 0, 0)
 		self.gridLayout2.addWidget(self.checkIndsButton, 1, 0)
-		self.gridLayout2.addWidget(self.checkLociButton, 2, 0)
+		self.gridLayout2.addWidget(self.alleleVerifyButton, 2, 0)
+		self.gridLayout2.addWidget(self.addNewAllelesButton, 2, 1)
 		self.gridLayout2.addWidget(self.genoConcordanceButton, 3, 0)
 		self.gridLayout2.addWidget(self.importButton, 4, 0)
 
-		
 		# add grid layout as top layout in main layout
 		self.mainLayout = QVBoxLayout()
 		self.mainLayout.addLayout(self.gridLayout)
@@ -164,6 +165,7 @@ class importGenoWindow(QDialog):
 					if res[0] in panelAlleles:
 						panelAlleles[res[0]].add(res[1])
 					elif res[1] is None:
+						# checking res[1] b/c locus name is returned in res[0], but alleles are NULL from join
 						# this occurs when no alleles have been defined for this locus
 						panelAlleles[res[0]] = set()
 					else:
@@ -178,6 +180,10 @@ class importGenoWindow(QDialog):
 			for i in range(0, len(inputAlleles)):
 				for j in range(0, self.panelPloidy):
 					inputAlleles[i].add(g[1][j + (i*self.panelPloidy)])
+		
+		# remove missing genotype (empty string) from allele list if present
+		for i in range(0, len(inputAlleles)):
+			inputAlleles[i].discard("")
 
 		# remove alleles that are already defined in the panel
 		# and save any new ones
@@ -265,9 +271,11 @@ class importGenoWindow(QDialog):
 						newAllele_id += 1
 					curs.execute(sqlState.rstrip(","))
 		
+		
 		msgBox = QMessageBox(parent=self)
 		msgBox.setWindowTitle("Add new alleles")
 		msgBox.setText("Successfully added new alleles for %s loci." % len(self.newAlleles))
+		self.newAlleles = {} # zero out the newAlleles dictionary
 		msgBox.exec()
 
 	def panelSelectionChange(self):
@@ -392,8 +400,10 @@ class importGenoWindow(QDialog):
 		
 		if len(onlyInFile) == 0 and len(onlyInPanel) == 0:
 			return 0
-		else:
+		elif len(onlyInFile) == 0:
 			return 1
+		else:
+			return 4
 	
 	# check concordance of genotypes in file before updating genotypes of 
 	# previously genotyped individuals
@@ -422,9 +432,36 @@ class importGenoWindow(QDialog):
 
 	# import genotypes
 	def importGenotypes(self):
+		# check if alleles have been validated
+		if not hasattr(self, "newAlleles"):
+			msgTxt = "You have not checked that the allele values match what is expected. "
+			msgTxt += "If there is an unrecognized value, the import will only be partially executed and the interface will crash. "
+			msgTxt += "Do you want to proceed?"
+			askBox = QMessageBox(parent=self)
+			askBox.setWindowTitle("Confirm proceed")
+			askBox.setText(msgTxt)
+			askBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+			proceed = askBox.exec()
+			if proceed == QMessageBox.StandardButton.No:
+				return
+		elif len(self.newAlleles) > 0:
+			dlgError(parent=self, message="Unrecognized alleles were found when you ran \"Check that alleles are recognized\" and have not been added to the panel.")
+			return
+
 		# make sure all loci (and no extras) are present
-		if self.checkLociNames(interact = False) != 0:
+		tempCheck = self.checkLociNames(interact = False)
+		if  tempCheck > 1:
 			dlgError(parent=self, message="Problem with locus names. Run \"Verify locus names\"")
+			return
+		elif tempCheck == 1:
+			# file does not contain all loci
+			askBox = QMessageBox(parent=self)
+			askBox.setWindowTitle("Confirm proceed")
+			askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for these loci will be assumed to be missing. Do you want to proceed with the import?")
+			askBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+			proceed = askBox.exec()
+			if proceed == QMessageBox.StandardButton.No:
+				return
 		
 		# check for duplicate inds and add inds to pedigree if needed
 		inds = getIndsFromFile(self.inputFile.text(), self.fileFormat.currentText())
@@ -445,6 +482,7 @@ class importGenoWindow(QDialog):
 		
 		# add new genotypes
 		with self.cnx.cursor() as curs:
+			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
 			if self.panelTypeLabel.text() == "Multiallelic":
 				# list in order of genoIter.loci, values are dict[(allele_1,allele_2,...)] = genotype_id
 				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
@@ -472,14 +510,24 @@ class importGenoWindow(QDialog):
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs)))
 			else:
 				# biallelic
-				
-				pass
+				# list in order of genoIter.loci, values are tuple (refAllele, altAllele)
+				refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), genoIter.loci)
+				# generate format string with matching number of binary digits
+				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
+				colNames = "ind_id," + ",".join(["`" + x + "`" for x in genoIter.loci])
+				sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES " % (self.panelComboBox.currentText(), colNames)
+				for g in genoIter:
+					# change alleles to bit code
+					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
+					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoBitCodes)))
 		
 		messageBox = QMessageBox(parent=self)
 		messageBox.setWindowTitle("Genotype import")
 		messageBox.setText("Genotype import complete")
 		messageBox.exec()
 		self.close()
+
+		## TODO test import of genotypes with all panel types diploid and triploid
 
 		### updating genotypes
 		###### different function - can skip pedigree check

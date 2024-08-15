@@ -78,14 +78,6 @@ def identifier_syntax_check(ident :  str) -> bool:
 		return False
 	return True
 
-# count number of items in an iterable that are equal to a single value
-def countEqual(items, matchValue) -> int:
-	count = 0
-	for i in items:
-		if i == matchValue:
-			count += 1
-	return count
-
 # calculate number of possible genotypes given the number
 #  of alleles and the ploidy
 def numGenotypes(numAlleles : int, ploidy : int) -> int:
@@ -133,7 +125,7 @@ def removePartialPanel(userInfo : dict, panelName : str):
 		if next(curs, [None])[0] is not None:
 			curs.execute("SELECT 1 FROM `intdb%s_gt` LIMIT 1" % panelName)
 			if next(curs, [None])[0] is not None:
-				raise Exception("Internal Error: tried to delete a panel containing genotypes")
+				return 1
 			# remove genotype table
 			curs.execute("DROP TABLE `intdb%s_gt`" % panelName)
 		# remove lookup table, if it exists
@@ -147,6 +139,7 @@ def removePartialPanel(userInfo : dict, panelName : str):
 		# remove row from panel overview table
 		curs.execute("DELETE FROM intDBgeno_overview WHERE panel_name = '%s'" % panelName)
 	cnxTemp.close()
+	return 0
 
 # checking which inds are in the pedigree already
 # returns a tuple of two tuples, first has inds in 
@@ -259,7 +252,7 @@ def getAlleleDict_hyper(cnx : connector, panelName : str, loci : list, ploidy : 
 	sqlState = "SELECT lt.allele_id,lt.allele FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
 	with cnx.cursor() as curs:
 		for i in range(0, len(loci)):
-			# get locus specifi allele lookup table
+			# get locus specific allele lookup table
 			curs.execute(sqlState % loci[i])
 			# add all alleles to dictionary
 			for x in curs:
@@ -267,3 +260,34 @@ def getAlleleDict_hyper(cnx : connector, panelName : str, loci : list, ploidy : 
 			# add missing allele value
 			outListDict[i][""] = 0
 	return outListDict
+
+# for a biallelic panel
+# make a list in order of loci, values are tuple (refAllele, altAllele)
+def getRefAlt(cnx : connector, panelName : str, loci : list):
+	outList = [None for x in loci]
+	lookupPos = {} # position in list that locus should have
+	for i in range(0, len(loci)):
+		lookupPos[loci[i]] = i
+	with cnx.cursor() as curs:
+		curs.execute("SELECT intDBlocus_name, intDBref_allele, intDBalt_allele FROM `%s` WHERE intDBlocus_name IN (%s)" % (panelName, ",".join(["'" + x + "'" for x in loci])))
+		# add alleles as tuple (ref, alt) to list
+		for res in curs:
+			outList[lookupPos[res[0]]] = (res[1], res[2])
+	return outList
+
+# geno : iterable with each element being an allele, e.g. ("A", "C") represents a heterozygous diploid genotype
+# refAlt : tuple of (refAllele, altAllele), e.g., element of list returned by getRefAlt
+# missing allele is empty string "" (only checks first allele - assumes either all missing or none missing)
+# returned genotype is number of copies of alt allele with missing genotype being (ploidy + 1)
+def genoToAltCopies(geno, refAlt):
+	if geno[0] == "":
+		return len(geno) + 1 # ploidy + 1
+	countAlt = 0
+	for x in geno:
+		if x == refAlt[0]:
+			pass
+		elif x == refAlt[1]:
+			countAlt += 1
+		else:
+			raise ValueError("unrecognized allele") # throw an error
+	return countAlt

@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 	 QGridLayout, 
 	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
 )
-from .utils import (dlgError, countEqual, identifier_syntax_check, getCursLoci, 
+from .utils import (dlgError, identifier_syntax_check, getCursLoci, 
 	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel
 )
 from collections import deque
@@ -117,18 +117,18 @@ class newPanelWindow(QDialog):
 			dlgError(parent=self, message="Invalid panel name")
 			return
 		colItems = [self.columnType_comboboxes[i].currentText() for i in range(0, len(self.columnType_comboboxes))]
-		if countEqual(colItems, "Locus name") != 1:
+		if colItems.count("Locus name") != 1:
 			dlgError(self, "(Only) One column must be \"Locus name\"")
 			return
 		if self.panelTypeBox.currentText() == "Biallelic":
-			if countEqual(colItems, "Ref allele") != 1:
+			if colItems.count("Ref allele") != 1:
 				dlgError(self, "(Only) One column must be \"Ref allele\"")
 				return
-			if countEqual(colItems, "Alt allele") != 1:
+			if colItems.count("Alt allele") != 1:
 				dlgError(self, "(Only) One column must be \"Alt allele\"")
 				return
 		else:
-			if countEqual(colItems, "Alleles") > 1:
+			if colItems.count("Alleles") > 1:
 				dlgError(self, "You cannot have more than one column of \"Alleles\"")
 				return
 		with self.cnx.cursor() as curs:

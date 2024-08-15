@@ -5,7 +5,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
 	QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
 	 QGridLayout, QWidget, QCheckBox, QToolBar, QInputDialog,
-	 QFileDialog
+	 QFileDialog, QMessageBox
 )
 import os
 import sys
@@ -194,7 +194,14 @@ class interactWindow(QMainWindow):
 			panel = panel[0]
 		else:
 			return
-		removePartialPanel(self.userInfo, panel)
+		retVal = removePartialPanel(self.userInfo, panel)
+		if retVal == 1:
+			dlgError(parent=self, message="Panel contains genotypes. Panel was NOT removed.")
+		elif retVal == 0:
+			msgBox = QMessageBox(parent=self)
+			msgBox.setWindowTitle("Panel removed")
+			msgBox.setText("Panel successfully removed")
+			msgBox.exec()
 
 	# open import genotypes window
 	def importGeno(self):
