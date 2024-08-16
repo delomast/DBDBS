@@ -313,7 +313,7 @@ class importGenoWindow(QDialog):
 			raise Exception("Interal error, not set up for this file format")
 		return genoIter
 
-	# check if individuals are 1) in pedigee an 2) in genotype panel
+	# check if individuals are 1) in pedigee and 2) in genotype panel
 	def checkNewInds(self):
 		# get list of inds
 		inds = getIndsFromFile(self.inputFile.text(), self.fileFormat.currentText())
@@ -576,20 +576,16 @@ class importGenoWindow(QDialog):
 					# update table
 					curs.execute(sqlState + ",".join(["`" + genoIter.loci[i] + "`" + "=" + genoIDs[i] for i in range(0, len(genoIDs))]) + (" WHERE ind_id = %s" % indIDlookup[g[0]]))
 			elif self.panelTypeLabel.text() == "Hyperallelic":
-
-				raise Exception
 				# list in order of genoIter.loci
 				alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
-				colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
-				colNames = [",".join(colNames).format(x) for x in genoIter.loci]
-				colNames = "ind_id," + ",".join(colNames)
-				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
+				setState = ["`{0}_a%s`=" % i for i in range(1, self.panelPloidy + 1)]
+				setState = [x.format(locus) for locus in genoIter.loci for x in setState]
 				for g in genoIter:
 					# change alleles to allele codes
 					# convert to str for the next line
-					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
+					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i//ploidy][g[1][i+j]]]
 					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
-					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs)))
+					curs.execute(sqlState + ",".join([setState[i] + alleleIDs[i] for i in range(0, len(alleleIDs))]) + (" WHERE ind_id = %s" % indIDlookup[g[0]]))
 			else:
 				# biallelic
 				# list in order of genoIter.loci, values are tuple (refAllele, altAllele)
@@ -597,6 +593,6 @@ class importGenoWindow(QDialog):
 				# generate format string with matching number of binary digits
 				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
 				for g in genoIter:
-					# change alleles to bit code
+					# change genotypes to bit code
 					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
 					curs.execute(sqlState + ",".join(["`" + genoIter.loci[i] + "`" + "=" + genoBitCodes[i] for i in range(0, len(genoBitCodes))]) + (" WHERE ind_id = %s" % indIDlookup[g[0]]))

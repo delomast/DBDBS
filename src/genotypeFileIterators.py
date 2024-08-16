@@ -23,10 +23,16 @@ class genoIter_2col:
 		return self
 
 	def __next__(self):
-		self.line = self.f.readline()
+		self.readNextLine()
 		if self.line == "":
 			raise StopIteration
 		else:
 			# process line to return genotypes
 			sep = self.line.rstrip("\n").split("\t")
 			return (sep[0], tuple(sep[1:]))
+
+	# read next line but skip blank lines
+	def readNextLine(self):
+		self.line = self.f.readline()
+		if self.line == "\n":
+			self.readNextLine()

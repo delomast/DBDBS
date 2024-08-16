@@ -176,7 +176,7 @@ def getIndsFromFile(fileName : str, fileType : str) -> list:
 		with open(fileName, "r") as f:
 			header = f.readline() # skip header
 			inds = [line.rstrip("\n").split("\t")[0] for line in f]
-		# heck for duplicates
+		# check for duplicates
 		if len(inds) > len(set(inds)):
 			dups = True
 		else:
@@ -195,6 +195,9 @@ def addToPedigree(cnx: connector, inds, sire = None, dam = None):
 			# just add inds
 			sqlState = "INSERT INTO intDBpedigree (ind) VALUES"
 			for name in inds:
+				if name == "":
+					dlgError(parent=self, message="Invalid individual name (empty string) found.")
+					raise ValueError("Empty string cannot be an individual name.")
 				sqlState += " ('%s')," % name
 			curs.execute(sqlState.rstrip(","))
 		elif sire is None:
