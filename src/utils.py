@@ -196,7 +196,7 @@ def addToPedigree(cnx: connector, inds, sire = None, dam = None):
 			sqlState = "INSERT INTO intDBpedigree (ind) VALUES"
 			for name in inds:
 				if name == "":
-					dlgError(parent=self, message="Invalid individual name (empty string) found.")
+					dlgError(message="Invalid individual name (empty string) found.")
 					raise ValueError("Empty string cannot be an individual name.")
 				sqlState += " ('%s')," % name
 			curs.execute(sqlState.rstrip(","))
