@@ -172,17 +172,22 @@ def indsInTable(cnx : connector, inds : list, tableName : str):
 # return a list of individual names from a 2col format file
 # and a boolean of whether there are duplicate ind names
 def getIndsFromFile(fileName : str, fileType : str) -> list:
-	if fileType == "2col":
+	if fileType == "2col" or fileType == "long":
 		with open(fileName, "r") as f:
 			header = f.readline() # skip header
 			inds = [line.rstrip("\n").split("\t")[0] for line in f]
-		# check for duplicates
-		if len(inds) > len(set(inds)):
-			dups = True
-		else:
-			dups = False
+	elif fileType == "PLINK ped":
+		with open(fileName, "r") as f:
+			# using within family ID
+			inds = [re.split("\t| ", line.rstrip("\n"))[1] for line in f]
 	else:
 		raise Exception("Internal error: file type not supported by getIndsFromFile")
+	
+	# check for duplicates
+	if len(inds) > len(set(inds)):
+		dups = True
+	else:
+		dups = False
 	return [tuple(inds), dups]
 
 # add individuals to the pedigree (optionally sire and dam information as well)

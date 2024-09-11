@@ -15,6 +15,7 @@ from .utils import (dlgError, identifier_syntax_check, getCursLoci,
 )
 from .genotypeFileIterators import *
 from itertools import combinations_with_replacement
+from statistics import fmean
 
 # using QDialog class and exec to block other windows - only one active window at a time
 class importGenoWindow(QDialog):
@@ -59,11 +60,13 @@ class importGenoWindow(QDialog):
 
 		# file format dropbox
 		self.fileFormat = QComboBox()
-		# 2col: tab-delimited, 2 column per call
+		# 2col: tab-delimited, 1 column per allele (2col per call for alleles)
 		# first col is individual name
 		# with header line
 		# locus names pulled from header for first column, optionally stripping [\.-_][aA]1
-		self.fileFormat.addItems(["2col", "PLINK ped and map", "formatotro"])
+		# long: tab delimited, columns of ind name, locus name, allele1, allele2, ..., allele n
+		# with header line
+		self.fileFormat.addItems(["2col", "PLINK ped", "long"])
 		self.fileFormat.currentTextChanged.connect(self.changeFormat)
 		self.stripA1Checkbox = QCheckBox(r"Drop [\.-_][aA]1")
 
@@ -170,16 +173,46 @@ class importGenoWindow(QDialog):
 						panelAlleles[res[0]] = set()
 					else:
 						panelAlleles[res[0]] = {res[1]}
-
+		
 		# get alleles for each locus in input file
-		genoIter = self.getGenoIter()
-		h = genoIter.loci
-		# list of sets, one set for each locus, in same order as locus names in h
-		inputAlleles = [set() for x in range(0, len(h))]
-		for g in genoIter:
-			for i in range(0, len(inputAlleles)):
-				for j in range(0, self.panelPloidy):
-					inputAlleles[i].add(g[1][j + (i*self.panelPloidy)])
+		# needs to define h: list of loci; inputAlleles: list of sets of alleles in same order as h
+		if self.fileFormat.currentText() == "long":
+			longGenoIter = self.getGenoIter()
+			inputAlleleDict = {}
+			for g in longGenoIter:
+				for i in range(0, len(g[2])):
+					# check if mixed alleles and missing
+					tempGeno = g[1][(i * self.panelPloidy):((i+1) * self.panelPloidy)]
+					if tempGeno.count("") > 0 and tempGeno.count("") < self.panelPloidy:
+						dlgError(parent=self, message="Individual %s has a genotype with a missing allele but not all alleles are missing" % g[0])
+						return
+					# make sure set exists in dictionary
+					if g[2][i] not in inputAlleleDict:
+						inputAlleleDict[g[2][i]] = set()
+					# add alleles to set
+					for al in tempGeno:
+						inputAlleleDict[g[2][i]].add(al)
+			# now change from dict to list
+			inputAlleles = []
+			h = []
+			for k, v in inputAlleleDict.items():
+				h += [k]
+				inputAlleles += [v]
+		else:
+			genoIter = self.getGenoIter()
+			h = genoIter.loci
+			# list of sets, one set for each locus, in same order as locus names in h
+			inputAlleles = [set() for x in range(0, len(h))]
+			for g in genoIter:
+				for i in range(0, len(inputAlleles)):
+					# check if mixed alleles and missing
+					tempGeno = g[1][(i * self.panelPloidy):((i+1) * self.panelPloidy)]
+					if tempGeno.count("") > 0 and tempGeno.count("") < self.panelPloidy:
+						dlgError(parent=self, message="Individual %s has a genotype with a missing allele but not all alleles are missing" % g[0])
+						return
+					# add allele to set
+					for al in tempGeno:
+						inputAlleles[i].add(al)
 		
 		# remove missing genotype (empty string) from allele list if present
 		for i in range(0, len(inputAlleles)):
@@ -309,6 +342,10 @@ class importGenoWindow(QDialog):
 	def getGenoIter(self):
 		if self.fileFormat.currentText() == "2col":
 			genoIter = genoIter_2col(self.inputFile.text(), self.stripA1Checkbox.isChecked(), self.panelPloidy)
+		elif self.fileFormat.currentText() == "PLINK ped":
+			genoIter = genoIter_plinkPEDMAP(self.inputFile.text())
+		elif self.fileFormat.currentText() == "long":
+			genoIter = genoIter_long(self.inputFile.text(), self.batchSizeSpinbox.value())
 		else:
 			raise Exception("Interal error, not set up for this file format")
 		return genoIter
@@ -333,7 +370,7 @@ class importGenoWindow(QDialog):
 		# show summary message and ask whether to write a report
 		writeReportBox = QMessageBox(parent=self)
 		writeReportBox.setWindowTitle("Individual check")
-		msgTxt = "Of %s total individuals, %s are already in the pedigree and %s are already in the genotype panel. " % \
+		msgTxt = "Of %s total individuals, %s are already in the pedigree and %s are already in the genotype table. " % \
 		(len(inds), len(pedStatus[0]), len(genoStatus[0]))
 		msgTxt += "Write report to " + self.inputFile.text() + "_indReport.txt?"
 		writeReportBox.setText(msgTxt)
@@ -356,23 +393,31 @@ class importGenoWindow(QDialog):
 
 	def checkLociNames(self, s = None, interact = True):
 		# get locus names from import file
-		genoIter = self.getGenoIter()
-		h = genoIter.loci
-		del genoIter
+		if self.fileFormat.currentText() == "long":
+			h = set()
+			with open(self.inputFile.text(), "r") as fileIn:
+				header = fileIn.readline()
+				for line in fileIn:
+					h.add(line.rstrip("\n").split("\t")[1])
+		else:
+			genoIter = self.getGenoIter()
+			h = genoIter.loci
+			del genoIter
+			oldLen = len(h)
+			h = set(h)
+			if len(h) < oldLen:
+				if interact:
+					dlgError(parent=self, message="One or more loci are repeated in the file")
+					return
+				else:
+					return 2
 		if len(h) < 1:
 			if interact:
 				dlgError(parent=self, message="No loci in the file")
 				return
 			else:
 				return 3
-		oldLen = len(h)
-		h = set(h)
-		if len(h) < oldLen:
-			if interact:
-				dlgError(parent=self, message="One or more loci are repeated in the file")
-				return
-			else:
-				return 2
+
 		# get locus names from panel
 		with self.cnx.cursor() as curs:
 			curs.execute("SELECT intDBlocus_name FROM `%s`" % self.panelComboBox.currentText())
@@ -411,22 +456,178 @@ class importGenoWindow(QDialog):
 		if not self.updateRadio.isChecked():
 			dlgError(parent=self, message="This function is only for when you intend to update previously genotyped individuals")
 			return
-		if self.fileFormat.currentText() == "2col":
+		
+		# store values as dictionary with key of ind name
+		concorDict = {}
+
+		if self.fileFormat.currentText() == "long":
 			pass
-			# TODO
-			# get locus names
+		else:
+			pass
 
-			# for each individual
-			# pull genotypes from file
+		# get genotype iterator
+		genoIter = self.getGenoIter()
+		# for each individual
+		with self.cnx.cursor() as curs:
+			# predefining variables if we know all loci and they stay constant
+			if self.fileFormat.currentText() != "long":
+				# list column names in order of genoIter.loci
+				if self.panelTypeLabel.text() == "Hyperallelic":
+					colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
+					colNames = [",".join(colNames).format(x) for x in genoIter.loci]
+					colNames = ",".join(colNames)
+					alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+					missTuple = tuple([0] * self.panelPloidy)
+				elif self.panelTypeLabel.text() == "Multiallelic":
+					colNames = ",".join(["`" + x + "`" for x in genoIter.loci])
+					genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
+				else:
+					# biallelic
+					colNames = ",".join(["`" + x + "` + 0" for x in genoIter.loci]) # + 0 converts binary to integer
+					refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), genoIter.loci)
+					missInt = self.panelPloidy + 1 # value for missing genotype
+				sqlState = "SELECT %s FROM intDB%s_gt WHERE ind_id = " % (colNames, self.panelComboBox.currentText())
 
-			# pull genotypes from database
+			for g in genoIter:
+				# if needed variables are not predefined, we need to define them
+				if self.fileFormat.currentText() == "long":
+					# list column names in order of loci
+					if self.panelTypeLabel.text() == "Hyperallelic":
+						colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
+						colNames = [",".join(colNames).format(x) for x in g[2]]
+						colNames = ",".join(colNames)
+						alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
+						missTuple = tuple([0] * self.panelPloidy)
+					elif self.panelTypeLabel.text() == "Multiallelic":
+						colNames = ",".join(["`" + x + "`" for x in g[2]])
+						genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
+					else:
+						# biallelic
+						colNames = ",".join(["`" + x + "` + 0" for x in g[2]]) # + 0 converts binary to integer
+						refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), g[2])
+						missInt = self.panelPloidy + 1 # value for missing genotype
+					sqlState = "SELECT %s FROM intDB%s_gt WHERE ind_id = " % (colNames, self.panelComboBox.currentText())
+				# initiate storage
+				# counts in order of:
+				# missing in both, missing in database only, missing in import only, genotyped concordant, genotyped non-concordant
+				tempList = [0] * 5
+				# get indID
+				indID = getIndIDdict(self.cnx, [g[0]])
+				if len(indID) < 1:
+					# ind not in pedigree
+					concorDict[g[0]] = [""] * 5
+					continue
+				# pull genotypes from database
+				curs.execute(sqlState + str(indID[g[0]]))
+				databaseGenos = next(curs, None)
+				if databaseGenos is None:
+					# ind not in genotype table
+					concorDict[g[0]] = [""] * 5
+					continue
+				# convert genotypes/alleles to ints and compare
+				if self.panelTypeLabel.text() == "Multiallelic":
+					# note: we are leaving the genoIDs as integers here, not converting to string
+					genoIDs = [genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))] for i in range(0, len(g[1]), self.panelPloidy)]
+					for i in range(0, len(genoIDs)):
+						if genoIDs[i] == 0 and databaseGenos[i] == 0:
+							tempList[0] += 1
+						elif databaseGenos[i] == 0:
+							tempList[1] += 1
+						elif genoIDs[i] == 0:
+							tempList[2] += 1
+						elif genoIDs[i] == databaseGenos[i]:
+							tempList[3] += 1
+						else:
+							tempList[4] += 1
+				elif self.panelTypeLabel.text() == "Hyperallelic":
+					# note: we are leaving the alleleIDs as integers here, not converting to string
+					alleleIDs = [alleleListDict[i // self.panelPloidy][g[1][i + j]] for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
+					for i in range(0, len(databaseGenos), self.panelPloidy):
+						# we are comparing alleles and ignoring order
+						tempDatabaseGeno = tuple(sorted(databaseGenos[i:(i+self.panelPloidy)]))
+						tempFileGeno = tuple(sorted(alleleIDs[i:(i + self.panelPloidy)]))
+						if tempFileGeno == missTuple and tempDatabaseGeno == missTuple:
+							tempList[0] += 1
+						elif tempDatabaseGeno == missTuple:
+							tempList[1] += 1
+						elif tempFileGeno == missTuple:
+							tempList[2] += 1
+						elif tempFileGeno == tempDatabaseGeno:
+							tempList[3] += 1
+						else:
+							tempList[4] += 1
+				else:
+					# biallelic
+					# convert to number of alt copies as integers
+					genoAltCopies = [genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]) for i in range(0, len(g[1]), self.panelPloidy)]
+					for i in range(0, len(genoAltCopies)):
+						if genoAltCopies[i] == missInt and databaseGenos[i] == missInt:
+							tempList[0] += 1
+						elif databaseGenos[i] == missInt:
+							tempList[1] += 1
+						elif genoAltCopies[i] == missInt:
+							tempList[2] += 1
+						elif genoAltCopies[i] == databaseGenos[i]:
+							tempList[3] += 1
+						else:
+							tempList[4] += 1
 
-			# compare
-			# missing to non-missing
+				# save to output dict and running total
+				if self.fileFormat.currentText() == "long" and g[0] in concorDict:
+					# if already seen this individual, add to the totals
+					for i in range(0, len(tempList)):
+						concorDict[g[0]][i] += tempList[i]
+				else:
+					concorDict[g[0]] = [x for x in tempList] # using list comprehension b/c we want to make a copy, not a reference
+			
+		# give summary and optionally write report
+		# calc summary stats
+		minlist = ["NA"] * 5
+		meanlist = ["NA"] * 5
+		maxlist = ["NA"] * 5
+		for i in range(0, 5):
+			tempVal = [v[i] for v in concorDict.values() if v[i] != ""]
+			if len(tempVal) < 1:
+				break
+			minlist[i] = min(tempVal)
+			meanlist[i] = fmean(tempVal)
+			maxlist[i] = max(tempVal)
+		stringSubList = [len(tempVal)]
+		for i in range(0, 5):
+			stringSubList += [minlist[i]]
+			stringSubList += [meanlist[i]]
+			stringSubList += [maxlist[i]]
 
-			# non-missing to missing
+		writeReportBox = QMessageBox(parent=self)
+		writeReportBox.setWindowTitle("Concordance check")
+		msgTxt = "Min, Mean, and Max number of genotypes for %s total individuals in the file and genotype table\n"
+		msgTxt += "Missing in both: %s, %s, %s\n"
+		msgTxt += "Missing in database only: %s, %s, %s\n"
+		msgTxt += "Missing in import file only: %s, %s, %s\n"
+		msgTxt += "Genotypes concordant: %s, %s, %s\n"
+		msgTxt += "Genotypes non-concordant: %s, %s, %s\n\n"
+		msgTxt += "Write report to " + self.inputFile.text() + "_concordanceReport.txt?"
+		writeReportBox.setText(msgTxt % tuple(stringSubList))
+		writeReportBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+		writeReport = writeReportBox.exec()
 
-			# proportion of alleles in common 
+		# write report
+		if writeReport == QMessageBox.StandardButton.Yes:
+			with open(self.inputFile.text() + "_concordanceReport.txt", "w") as fout:
+				fout.write("\t".join(["ind", "missBoth", "missDatabase", "missImportFile", "concordant", "nonConcordant"]) + "\n") # write header line
+				# in both
+				for k, v in concorDict.items():
+					fout.write(k + "\t" + "\t".join([str(x) for x in v]) + "\n")
+		
+		# TODO
+		# test PLINK ped/map format
+		# finish adding long format
+		# test long format 
+		# add PLINK bed format
+		# test PLINK bed format 
+		# move on to genotype export
+
+
 
 
 
@@ -473,7 +674,7 @@ class importGenoWindow(QDialog):
 		# check for duplicate inds and add inds to pedigree if needed
 		inds = getIndsFromFile(self.inputFile.text(), self.fileFormat.currentText())
 		if inds[1]:
-			dlgError(parent=self, message="Dupliate individual names in the input file")
+			dlgError(parent=self, message="Duplicate individual names in the input file")
 			return
 		inds = inds[0]
 		indsInPed = indsInPedigree(self.cnx, inds)
@@ -485,7 +686,7 @@ class importGenoWindow(QDialog):
 		
 		retValue = addToPedigree(self.cnx, indsInPed[1], sire = None, dam = None)
 		if retValue != 0:
-			raise Exception("Internal error")
+			raise Exception("Internal error") 
 		
 		# check for presence of individuals in the genotype table
 		tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")
@@ -504,7 +705,10 @@ class importGenoWindow(QDialog):
 
 		if self.addNewRadio.isChecked():
 			# add new genotypes
-			self.addNewGenos(indIDlookup, genoIter)
+			if self.fileFormat.currentText() == "long":
+				self.addNewGenos_long(indIDlookup, genoIter)
+			else:
+				self.addNewGenos(indIDlookup, genoIter)
 		else:
 			# update existing genotypes
 			self.updateGenos(indIDlookup, genoIter)
@@ -518,13 +722,13 @@ class importGenoWindow(QDialog):
 	def addNewGenos(self, indIDlookup, genoIter):
 		# add new genotypes
 		with self.cnx.cursor() as curs:
-			sqlState = "INSERT INTO `intDB%s_gt` (%s) VALUES "
+			sqlState = "INSERT INTO `intDB" + self.panelComboBox.currentText() + "_gt` (%s) VALUES "
 			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
 			if self.panelTypeLabel.text() == "Multiallelic":
 				# list in order of genoIter.loci, values are dict[(allele_1,allele_2,...)] = genotype_id
 				genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), genoIter.loci, self.panelPloidy)
 				colNames = "ind_id," + ",".join(["`%s`" % x for x in genoIter.loci])
-				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % colNames
 				for g in genoIter:
 					# change alleles to genotype codes
 					# have to sort alleles and then convert to tuple (b/c lists aren't hashable) for lookup
@@ -538,7 +742,7 @@ class importGenoWindow(QDialog):
 				colNames = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
 				colNames = [",".join(colNames).format(x) for x in genoIter.loci]
 				colNames = "ind_id," + ",".join(colNames)
-				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % colNames
 				for g in genoIter:
 					# change alleles to allele codes
 					# convert to str for the next line
@@ -552,14 +756,68 @@ class importGenoWindow(QDialog):
 				# generate format string with matching number of binary digits
 				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
 				colNames = "ind_id," + ",".join(["`" + x + "`" for x in genoIter.loci])
-				sqlState = sqlState % (self.panelComboBox.currentText(), colNames)
+				sqlState = sqlState % colNames
 				for g in genoIter:
 					# change alleles to bit code
 					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
 					curs.execute(sqlState + "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoBitCodes)))
-		
-	def updateGenos(self, indIDlookup, genoIter):
+	
+	def addNewGenos_long(self, indIDlookup, genoIter):
 		# add new genotypes
+		with self.cnx.cursor() as curs:
+			sqlState = "INSERT INTO `intDB" + self.panelComboBox.currentText() + "_gt` (%s) VALUES "
+			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
+			if self.panelTypeLabel.text() == "Multiallelic":
+				for g in genoIter:
+					# define variables b/c loci change between iterations
+					genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
+					colNames = "ind_id," + ",".join(["`%s`" % x for x in g[2]])
+					sqlState_long = sqlState % colNames
+					# change alleles to genotype codes
+					# have to sort alleles and then convert to tuple (b/c lists aren't hashable) for lookup
+					# then convert to str for the next line
+					genoIDs = [str(genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))]) for i in range(0, len(g[1]), self.panelPloidy)]
+					# add ind_id, genotype_id(s) to table
+					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoIDs))
+					sqlState_long += " ON DUPLICATE KEY UPDATE"
+					for i in range(0, len(genoIDs)):
+						sqlState_long += " " + g[2][i] + "=" + genoIDs[i] + ","
+					curs.execute(sqlState_long.rstrip(","))
+			elif self.panelTypeLabel.text() == "Hyperallelic":
+				alleleNameStrings = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
+				for g in genoIter:
+					# define variables b/c loci change between iterations
+					alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
+					alleleColumns = [x.format(y) for y in g[2] for x in alleleNameStrings]
+					sqlState_long = sqlState % ("ind_id," + ",".join(alleleColumns))
+					# change alleles to allele codes
+					# convert to str for the next line
+					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
+					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
+					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs))
+					sqlState_long += " ON DUPLICATE KEY UPDATE"
+					for i in range(0, len(alleleColumns)):
+						sqlState_long += " " + alleleColumns[i] + "=" + alleleIDs[i] + ","
+					curs.execute(sqlState_long.rstrip(","))
+			else:
+				# biallelic
+				# generate format string with matching number of binary digits
+				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
+				for g in genoIter:
+					# list in order of g[2], values are tuple (refAllele, altAllele)
+					refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), g[2])
+					colNames = "ind_id," + ",".join(["`" + x + "`" for x in g[2]])
+					sqlState_long = sqlState % colNames
+					# change alleles to bit code
+					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
+					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoBitCodes))
+					sqlState_long += " ON DUPLICATE KEY UPDATE"
+					for i in range(0, len(genoBitCodes)):
+						sqlState_long += " " + g[2][i] + "=" + genoBitCodes[i] + ","
+					curs.execute(sqlState_long.rstrip(","))
+	# TODO left off adding long format here
+	def updateGenos(self, indIDlookup, genoIter):
+		# overwrite existing genotypes
 		with self.cnx.cursor() as curs:
 			sqlState = "UPDATE `intDB%s_gt` SET " % self.panelComboBox.currentText()
 			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
