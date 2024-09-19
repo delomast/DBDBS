@@ -97,7 +97,7 @@ def getNumLoci(cnx : connector, panelName : str) -> int:
 # function to start a new connection
 def getConnection(userInfo : dict):
 	cnx = connector.connect(user=userInfo["un"], password=userInfo["pw"], 
-						 host=userInfo["host"], database=userInfo["db"], autocommit=True)
+						 host=userInfo["host"], database=userInfo["db"], autocommit=False)
 	return cnx
 
 # return a cursor with locus names in a panel ordered by auto_incrementing id number
@@ -138,6 +138,7 @@ def removePartialPanel(userInfo : dict, panelName : str):
 			curs.execute("DROP TABLE `%s`" % panelName)
 		# remove row from panel overview table
 		curs.execute("DELETE FROM intDBgeno_overview WHERE panel_name = '%s'" % panelName)
+	cnxTemp.commit()
 	cnxTemp.close()
 	return 0
 
@@ -229,59 +230,72 @@ def getIndIDdict(cnx : connector, inds : list):
 			indID[x[0]] = x[1]
 	return indID
 
-# for a multiallelic panel
-# make a list, in order of loci,
-# with each entry being a dict of
-# key = (allele1, allele2, ...) and value of genotype_id 
-def getGenoDict_multi(cnx : connector, panelName : str, loci : list, ploidy : int):
-	# build blank list of dictionaries
-	outListDict = [{} for x in loci]
-	sqlState = "SELECT lt.genotype_id," + ",".join(["lt.allele_%s" % x for x in range(1, ploidy + 1)])
-	sqlState += " FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
-	missTuple = tuple(["" for x in range(0, ploidy)]) # empty string tuple representing missing genotype
+# get the dictionary object used to convert input genotypes from a file into
+# the representation in the database
+# returns dictionary of key = locus name, 
+# value = dict with key = genotype/allele, value of genotype/allele id
+# for multi/hyperallelic
+# OR for biallelic
+# value = tuple(ref allele, alt allele)
+def getGenoConvertDict(cnx : connector, panelName : str, loci : set):
+	convertDict = {}
 	with cnx.cursor() as curs:
-		for i in range(0, len(loci)):
-			# get locus specific lookup table
-			curs.execute(sqlState % loci[i])
-			# add to dictionary
-			for x in curs:
-				# key is ordered alleles in a tuple, value is genotype code
-				outListDict[i][tuple(x[1:])] = x[0]
+		# get panel type and ploidy
+		curs.execute("SELECT panel_type, ploidy FROM intDBgeno_overview WHERE panel_name = '%s'" % panelName)
+		panelType, ploidy = curs.fetchone()
+
+		# select all loci in panel if none are specified
+		if loci is None or len(loci) == 0:
+			curs.execute("SELECT intDBlocus_name FROM `%s`" % panelName)
+			loci = set([x[0] for x in curs])
+
+		if panelType == "Multiallelic":
+			# initialize sub-dictionaries
+			for l in loci:
+				convertDict[l] = {}
+			# get table of genotype codes for all loci of interest
+			sqlState = "SELECT p.intDBlocus_name,lt.genotype_id," + ",".join(["lt.allele_%s" % x for x in range(1, ploidy + 1)])
+			sqlState += " FROM `{0}` AS p INNER JOIN `intDB{0}_lt` AS lt ON p.intDBlocus_id = lt.locus_id".format(panelName)
+			sqlState += " WHERE p.intDBlocus_name IN (%s)" % ",".join(["'" + x + "'" for x in loci])
+			curs.execute(sqlState)
+			# add each genotype code to lookup dict
+			for lt in curs:
+				# lt should be a tuple, so lt[2:] is also
+				convertDict[lt[0]][lt[2:]] = lt[1]
 			# add missing genotype value
-			outListDict[i][missTuple] = 0 # 0 in table is missing genotype
-	return outListDict
-
-# for a hyperallelic panel
-# make a list, in order of loci,
-# with each entry being a dict of
-# key = (allele) and value of allele_id 
-def getAlleleDict_hyper(cnx : connector, panelName : str, loci : list, ploidy : int):
-	outListDict = [{} for x in loci]
-	sqlState = "SELECT lt.allele_id,lt.allele FROM {0} AS p INNER JOIN intDB{0}_lt AS lt ON p.intDBlocus_id = lt.locus_id WHERE p.intDBlocus_name = '%s'".format(panelName)
-	with cnx.cursor() as curs:
-		for i in range(0, len(loci)):
-			# get locus specific allele lookup table
-			curs.execute(sqlState % loci[i])
-			# add all alleles to dictionary
-			for x in curs:
-				outListDict[i][x[1]] = x[0]
+			missTuple = ("",) * ploidy # empty string tuple representing missing genotype
+			for l in loci:
+				convertDict[l][missTuple] = 0 # 0 in table is missing genotype
+		elif panelType == "Hyperallelic":
+			# initialize sub-dictionaries
+			for l in loci:
+				convertDict[l] = {}
+			sqlState = "SELECT p.intDBlocus_name, lt.allele_id, lt.allele FROM `{0}` AS p INNER JOIN `intDB{0}_lt` AS lt ON p.intDBlocus_id = lt.locus_id".format(panelName) 
+			sqlState += " WHERE p.intDBlocus_name IN (%s)" % ",".join(["'" + x + "'" for x in loci])
+			curs.execute(sqlState)
+			# add allele code to lookup dict
+			for lt in curs:
+				convertDict[lt[0]][lt[2]] = lt[1]
 			# add missing allele value
-			outListDict[i][""] = 0
-	return outListDict
+			for l in loci:
+				convertDict[l][""] = 0 # 0 in table is missing genotype
+		else:
+			# biallelic
+			curs.execute("SELECT intDBlocus_name, intDBref_allele, intDBalt_allele FROM `%s` WHERE intDBlocus_name IN (%s)" % (panelName, ",".join(["'" + x + "'" for x in loci])))
+			# add alleles as tuple (ref, alt) to list
+			for lt in curs:
+				# lt should be tuple, so lt[1:3] is also
+				convertDict[lt[0]] = lt[1:3]
 
-# for a biallelic panel
-# make a list in order of loci, values are tuple (refAllele, altAllele)
-def getRefAlt(cnx : connector, panelName : str, loci : list):
-	outList = [None for x in loci]
-	lookupPos = {} # position in list that locus should have
-	for i in range(0, len(loci)):
-		lookupPos[loci[i]] = i
+	return convertDict
+
+# returns a tuple of locus names in the order that 
+# they are stored in the BLOB within the database
+def getLocusOrderInBlob(cnx : connector, panelName : str):
 	with cnx.cursor() as curs:
-		curs.execute("SELECT intDBlocus_name, intDBref_allele, intDBalt_allele FROM `%s` WHERE intDBlocus_name IN (%s)" % (panelName, ",".join(["'" + x + "'" for x in loci])))
-		# add alleles as tuple (ref, alt) to list
-		for res in curs:
-			outList[lookupPos[res[0]]] = (res[1], res[2])
-	return outList
+		curs.execute("SELECT intDBlocus_name FROM `%s` ORDER BY intDBlocus_id" % panelName)
+		locusOrder = tuple([x[0] for x in curs])
+	return locusOrder
 
 # geno : iterable with each element being an allele, e.g. ("A", "C") represents a heterozygous diploid genotype
 # refAlt : tuple of (refAllele, altAllele), e.g., element of list returned by getRefAlt

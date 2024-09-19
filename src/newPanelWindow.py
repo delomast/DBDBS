@@ -36,7 +36,7 @@ class newPanelWindow(QDialog):
 		self.ploidySpinnerBox.setValue(2) # default is diploid
 		self.batchSizeSpinnerBox = QSpinBox() # number of loci to process at once (higher = faster and more memory)
 		self.batchSizeSpinnerBox.setRange(1, 100000000)
-		self.batchSizeSpinnerBox.setValue(100000) # default is 100000
+		self.batchSizeSpinnerBox.setValue(10000) # default is 10000
 		self.panelDescBox = QTextEdit()
 		self.panelDescBox.setAcceptRichText(False)
 
@@ -139,9 +139,6 @@ class newPanelWindow(QDialog):
 					dlgError(parent=self, message="A table with that name already exists, please pick a different panel name")
 					return
 		
-		# set maxBatchSize for easy referencing
-		self.maxBatchSize = self.batchSizeSpinnerBox.value()
-
 		# detect varchar sizes and more input checks
 		# this does NOT check whether locus names are unique
 		# this is not done b/c it would require storing all names in memory
@@ -151,13 +148,14 @@ class newPanelWindow(QDialog):
 		locName_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "Locus name"][0]
 		toCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] in ("Alt allele", "Ref allele", "Alleles")]
 		maxLen = [0] * len(vChar)
-		locusCount = 0 # number of loci in panel
+		locusNames = set()
+		locusCount = 0 # number of loci in panel definition file
 		with open(self.panelDefFile, "r") as f:
 			line = f.readline() # skip header
-			line = f.readline()
-			while line:
-				line = line.rstrip("\n").split("\t")
+			for l in f:
+				line = l.rstrip("\n").split("\t")
 				locusCount += 1
+				locusNames.add(line[locName_pos])
 				for i in range(0, len(vChar)):
 					if len(line[vChar[i]]) > maxLen[i]:
 						maxLen[i] = len(line[vChar[i]])
@@ -184,7 +182,21 @@ class newPanelWindow(QDialog):
 					if len(alleles) > len(set(alleles)):
 						dlgError(parent=self, message="Locus \"%s\" has the same allele listed more than once" % line[locName_pos])
 						return
-				line = f.readline()
+		if len(locusNames) < locusCount:
+			dlgError(parent=self, message="Duplicate locus names found")
+			return
+		
+		# make sure number of loci is below maximum
+		# maximum allowed is a little below the hard maximum for MEDIUMBLOB
+		maxLoci = 16700000 # for Multi, max loci is same as max bytes
+		if self.panelTypeBox.currentText() == "Hyperallelic":
+			maxLoci = maxLoci // self.ploidySpinnerBox.value()
+		elif self.panelTypeBox.currentText() == "Biallelic":
+			maxLoci = (maxLoci * 8) // numBits(2, self.ploidySpinnerBox.value())
+		if locusCount > maxLoci:
+			dlgError(parent=self, message="Too many loci to store in one panel. The maximum number of loci for this type and ploidy is %s." % maxLoci)
+			return
+
 		# make sure user defined columns have valid names
 		for i in range(0, len(colNames)):
 			if colTypes[i] not in ("Locus name", "Alt allele", "Ref allele", "Alleles"):
@@ -249,7 +261,7 @@ class newPanelWindow(QDialog):
 					line = line.rstrip("\n").split("\t")
 					sqlState += insertString % tuple(line)
 					rowCounter += 1
-					if rowCounter == self.maxBatchSize:
+					if rowCounter == self.batchSizeSpinnerBox.value():
 						# strip last comma and execute insert statement
 						curs.execute(sqlState.rstrip(","))
 						sqlState = "INSERT INTO `%s` %s VALUES " % (self.panelNameBox.text(), colNameString)
@@ -266,57 +278,10 @@ class newPanelWindow(QDialog):
 				(self.panelNameBox.text(), locusCount, self.ploidySpinnerBox.value(), self.panelDescBox.toPlainText(), self.panelTypeBox.currentText()))
 
 			# create genotype table
-			sqlState = "CREATE TABLE `%s` (ind_id INTEGER UNSIGNED PRIMARY KEY," % ("intDB" + self.panelNameBox.text() + "_gt")
-			rowCounter = 0
-			if self.panelTypeBox.currentText() == "Biallelic":
-				# determine number of bits needed
-				nBits = numBits(2, self.ploidySpinnerBox.value())
-				# statement for defining a column in CREATE TABLE
-				# default is missing genotype, given by (ploidy + 1)
-				baseState = " `{}` " + ("BIT(%s) NOT NULL DEFAULT b'%s'," % (nBits, format(self.ploidySpinnerBox.value() + 1, "0%sb" % nBits)))
-				# statement for adding a column in ALTER TABLE
-				baseState2 = " ADD COLUMN" + baseState
-			elif self.panelTypeBox.currentText() == "Multiallelic":
-				baseState = " `{}` TINYINT UNSIGNED NOT NULL DEFAULT 0," # default of 0 for missing genotype
-				baseState2 = " ADD COLUMN" + baseState
-			elif self.panelTypeBox.currentText() == "Hyperallelic":
-				baseState = ""
-				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					baseState += " `{0}" + ("_a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
-				baseState2 = ""
-				for i in range(0, self.ploidySpinnerBox.value()):
-					baseState2 += " ADD COLUMN `{0}" + ("_a%s` TINYINT UNSIGNED NOT NULL DEFAULT 0," % i)
-
-			# get second connection and cursor to loop through loci without storing all 
-			# locus names in memory
+			sqlState = "CREATE TABLE `%s` (ind_id INTEGER UNSIGNED PRIMARY KEY, genotypes MEDIUMBLOB NOT NULL, FOREIGN KEY (ind_id) REFERENCES intDBpedigree(ind_id))" % ("intDB" + self.panelNameBox.text() + "_gt")
+			curs.execute(sqlState)
+			
 			cnx2 = getConnection(self.userInfo)
-			lociCursor = getCursLoci(cnx2, self.panelNameBox.text())
-			# build genotype table with all loci
-			# NOTE: this needs to work for all three panel types with different baseState(s) from above
-			for loc in lociCursor:
-				sqlState += baseState.format(loc[0])
-				rowCounter += 1
-				if rowCounter == self.maxBatchSize:
-					# execute statement
-					if sqlState[0:6] == "CREATE":
-						# add foreign key constraint with initial table specification
-						curs.execute(sqlState + " FOREIGN KEY (ind_id) REFERENCES intDBpedigree(ind_id))")
-					else:
-						curs.execute(sqlState.rstrip(","))
-					# start new statement with ALTER TABLE
-					sqlState = "ALTER TABLE `%s` " % ("intDB" + self.panelNameBox.text() + "_gt")
-					baseState = baseState2
-					rowCounter = 0
-			# execute last statement if needed
-			if rowCounter > 0:
-				if sqlState[0:6] == "CREATE":
-					# add foreign key constraint with initial table specification
-					curs.execute(sqlState + " FOREIGN KEY (ind_id) REFERENCES intDBpedigree(ind_id))")
-				else:
-					curs.execute(sqlState.rstrip(","))
-			lociCursor.close()
-			del sqlState
-
 			# create lookup table
 			if self.panelTypeBox.currentText() == "Multiallelic":
 				# define table
@@ -395,6 +360,9 @@ class newPanelWindow(QDialog):
 					laCursor.close()
 			
 			cnx2.close() # close second connection
+		
+		# commit changes
+		self.cnx.commit()
 
 		# close window
 		self.close()

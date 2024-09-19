@@ -1,5 +1,5 @@
 -- create genotype panel information table
-CREATE TABLE intDBgeno_overview(
+CREATE TABLE intDBgeno_overview (
 	panel_name VARCHAR(64) UNIQUE NOT NULL, 
 	number_of_loci INTEGER UNSIGNED NOT NULL,
 	ploidy INTEGER UNSIGNED NOT NULL,
