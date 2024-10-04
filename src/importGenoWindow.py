@@ -714,9 +714,10 @@ class importGenoWindow(QDialog):
 					altCopies = [format(genoToAltCopies(g.genoDict[lname], genoConvertDict[lname]), binaryFormatString) for lname in locusOrder]
 					# join together into one long string
 					altCopies = "".join(altCopies)
-					# pad with zeros on the end to make an even number of bytes
+					# pad with zeros on the end to make complete bytes
 					altCopies += "0" * (8 - (len(altCopies) % 8))
 					# convert to hex string 4 digits at a time to make sure we keep all 0s
+					# and prevent any issues with large numbers
 					hexString = "".join([format(int(altCopies[x:(x+4)], 2), "01x") for x in range(0, len(altCopies), 4)])
 					del altCopies # save some memory
 				else:
@@ -735,68 +736,93 @@ class importGenoWindow(QDialog):
 		
 		# commit transaction after all individuals successfully added
 		self.cnx.commit()
-	# TODO left off here after testing import
-	def addNewGenos_long(self, indIDlookup, genoIter):
+	
+	def addNewGenos_long(self, indIDlookup, genoIter, genoConvertDict):
+		# get a tuple of locus names in order
+		locusOrder = getLocusOrderInBlob(self.cnx, self.panelComboBox.currentText())
+		# convert tuple to dictionary with key of locus name, value of position (0-based)
+		locusOrderDict = {}
+		for i in range(0, len(locusOrder)):
+			locusOrderDict[locusOrder[i]] = i
+		del locusOrder
 
-		## if long and ind has been seen before, pull existing and update
-		## if long, add to seen before list
-		## if long and seen before, update instead of insert
-
-
-
-		# add new genotypes
+		# list of inds seen before during this update
+		indsAdded = []
 		with self.cnx.cursor() as curs:
-			sqlState = "INSERT INTO `intDB" + self.panelComboBox.currentText() + "_gt` (%s) VALUES "
-			# the big list comprehensions here are a bit of a pain to read, but they are expected to run much faster than when split into for loops 
-			if self.panelTypeLabel.text() == "Multiallelic":
-				for g in genoIter:
-					# define variables b/c loci change between iterations
-					genoListDict = getGenoDict_multi(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
-					colNames = "ind_id," + ",".join(["`%s`" % x for x in g[2]])
-					sqlState_long = sqlState % colNames
-					# change alleles to genotype codes
-					# have to sort alleles and then convert to tuple (b/c lists aren't hashable) for lookup
-					# then convert to str for the next line
-					genoIDs = [str(genoListDict[i // self.panelPloidy][tuple(sorted(g[1][i:(i+self.panelPloidy)]))]) for i in range(0, len(g[1]), self.panelPloidy)]
-					# add ind_id, genotype_id(s) to table
-					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoIDs))
-					sqlState_long += " ON DUPLICATE KEY UPDATE"
-					for i in range(0, len(genoIDs)):
-						sqlState_long += " " + g[2][i] + "=" + genoIDs[i] + ","
-					curs.execute(sqlState_long.rstrip(","))
-			elif self.panelTypeLabel.text() == "Hyperallelic":
-				alleleNameStrings = ["`{0}_a%s`" % i for i in range(1, self.panelPloidy + 1)]
-				for g in genoIter:
-					# define variables b/c loci change between iterations
-					alleleListDict = getAlleleDict_hyper(self.cnx, self.panelComboBox.currentText(), g[2], self.panelPloidy)
-					alleleColumns = [x.format(y) for y in g[2] for x in alleleNameStrings]
-					sqlState_long = sqlState % ("ind_id," + ",".join(alleleColumns))
-					# change alleles to allele codes
-					# convert to str for the next line
-					# list comprehension equivalent to nested for loop for i in: for j in: list += [allele[i][g[1][i+j]]]
-					alleleIDs = [str(alleleListDict[i // self.panelPloidy][g[1][i + j]]) for i in range(0, len(g[1]), self.panelPloidy) for j in range(0, self.panelPloidy) ]
-					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(alleleIDs))
-					sqlState_long += " ON DUPLICATE KEY UPDATE"
-					for i in range(0, len(alleleColumns)):
-						sqlState_long += " " + alleleColumns[i] + "=" + alleleIDs[i] + ","
-					curs.execute(sqlState_long.rstrip(","))
-			else:
-				# biallelic
-				# generate format string with matching number of binary digits
-				binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
-				for g in genoIter:
-					# list in order of g[2], values are tuple (refAllele, altAllele)
-					refAltLookup = getRefAlt(self.cnx, self.panelComboBox.currentText(), g[2])
-					colNames = "ind_id," + ",".join(["`" + x + "`" for x in g[2]])
-					sqlState_long = sqlState % colNames
-					# change alleles to bit code
-					genoBitCodes = ["b'" + format(genoToAltCopies(g[1][i:(i+self.panelPloidy)], refAltLookup[i // self.panelPloidy]), binaryFormatString) + "'" for i in range(0, len(g[1]), self.panelPloidy)]
-					sqlState_long += "(%s,%s)" % (indIDlookup[g[0]], ",".join(genoBitCodes))
-					sqlState_long += " ON DUPLICATE KEY UPDATE"
-					for i in range(0, len(genoBitCodes)):
-						sqlState_long += " " + g[2][i] + "=" + genoBitCodes[i] + ","
-					curs.execute(sqlState_long.rstrip(","))
-	# left off adding long format here
+			sqlState_insert = "INSERT INTO `intDB%s_gt` (ind_id, genotypes) VALUES " % self.panelComboBox.currentText()
+			sqlState_update = "UPDATE `intDB%s_gt` SET " % self.panelComboBox.currentText()
+			if self.panelTypeLabel.text() == "Biallelic":
+				# calculate once if needed
+				nb = numBits(2, self.panelPloidy)
+				binaryFormatString = "0%sb" % nb
+			# for each individual, convert input to database representation, and add to database
+			for g in genoIter:
+				# test if already in database
+				if g.indName in indsAdded:
+					insertNew = False
+					# get existing genotypes as a list of ints
+					curs.execute("SELECT genotypes FROM `intDB%s_gt` WHERE ind_id = %s" % (self.panelComboBox.currentText(), indIDlookup[g.indName]))
+					if self.panelTypeLabel.text() == "Biallelic":
+						# convert to binary 
+						blobInts = "".join([format(x, "08b") for x in curs.fetchone()[0]])
+						# unpack bitwise into loci and convert to ints
+						# note we are ignoring padding on the right, will need to tack on 0s on insert
+						blobInts = [int(blobInts[x:(x + nb)], 2) for x in range(0, len(locusOrderDict), nb)] 
+					else:
+						# convert bytes to ints
+						blobInts = [x for x in curs.fetchone()[0]]
+				else:
+					insertNew = True
+					# add to list of seen before
+					indsAdded += [g.indName]
+					# create new with all missing
+					if self.panelTypeLabel.text() == "Biallelic":
+						blobInts = [self.panelPloidy + 1] * len(locusOrderDict)
+					elif self.panelTypeLabel.text() == "Multiallelic":
+						blobInts = [0] * len(locusOrderDict)
+					else:
+						# hyperallelic
+						blobInts = [0] * (len(locusOrderDict) * self.panelPloidy)
+				
+				# update with genotypes for loci in g
+				if self.panelTypeLabel.text() == "Biallelic":
+					for k, v in g.genoDict: # key is locus name, value is tuple of alleles
+						blobInts[locusOrderDict[k]] = genoToAltCopies(v, genoConvertDict[k])
+					# convert ints to binary
+					blobInts = [format(x, binaryFormatString) for x in blobInts]
+					# join together into one long string
+					blobInts = "".join(blobInts)
+					# pad with zeros on the end to make complete bytes
+					blobInts += "0" * (8 - (len(blobInts) % 8))
+					# convert to hex string 4 digits at a time to make sure we keep all 0s
+					# and prevent any issues with large numbers
+					hexString = "".join([format(int(blobInts[x:(x+4)], 2), "01x") for x in range(0, len(blobInts), 4)])
+					del blobInts # save some memory
+				else:
+					if self.panelTypeLabel.text() == "Multiallelic":
+						for k, v in g.genoDict: # key is locus name, value is tuple of alleles
+							blobInts[locusOrderDict[k]] = genoConvertDict[k][v]
+					else:
+						# Hyperallelic
+						for k, v in g.genoDict: # key is locus name, value is tuple of alleles
+							for i in range(0, self.panelPloidy):
+								blobInts[(locusOrderDict[k] * self.panelPloidy) + i] = genoConvertDict[k][v[i]]
+					# convert ints into hex
+					hexString = "".join([format(x, "02x") for x in blobInts])
+					del blobInts # save a bit of memory for large panels
+
+				# insert or update into the database
+				if insertNew:
+					# insert statement
+					curs.execute(sqlState_insert + "(%s,X'%s')" % (indIDlookup[g.indName], hexString))
+				else:
+					#update statement
+					curs.execute(sqlState_update + "genotypes=X'%s' WHERE ind_id = %s" % (hexString, indIDlookup[g.indName]))
+				del insertNew # defensive
+
+
+	## TODO test long format adding new genotype (function above) and then continue here
+	# left off chagning to work with new blob and adding long format here
 	def updateGenos(self, indIDlookup, genoIter):
 		# overwrite existing genotypes
 		with self.cnx.cursor() as curs:
