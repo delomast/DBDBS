@@ -123,10 +123,6 @@ class genoIter_plinkPEDMAP:
 				self.genos[self.loci[i_locus]] = tuple(sorted(sep[i_geno:(i_geno + 2)]))
 			return multLocGeno(self.indName, self.genos)
 
-# TODO left off here changing from returning tuple to returning dict
-#    to use for insert and update, run through loci in panel in order needed
-#       with a .get() statemtne and have a default return of missing genotype value
-
 # iterator to read "long" format genotype files
 # tab delimited with columns of ind name, locus name, allele 1, ..., allele n
 # one line per ind/locus genotype
@@ -151,6 +147,10 @@ class genoIter_long:
 		# load first genotype line in look-ahead variable
 		self.readNextLine()
 
+		# dictionary: key is locus name, value is (allele1, allele2) for ploidy n
+		self.genos = {}
+		self.indName = None
+
 	def __iter__(self):
 		return self
 
@@ -159,26 +159,33 @@ class genoIter_long:
 		if self.line == "":
 			raise StopIteration
 		else:
+			colNumError = False
+			self.genos.clear() # clear genotype dictionary
+			
 			# define values with next line
-			indID = self.sep[0]
-			loci = [self.sep[1]]
-			nloci = 1
-			genos = self.sep[2:]
+			self.indName = self.sep[0]
+			# check for proper number of alleles
+			if len(self.sep) != self.ploidy + 2:
+				colNumError = True
+			self.genos[self.sep[1]] = tuple(sorted(self.sep[2:]))
 			self.readNextLine()
+
 			# add more if possible
-			while nloci < self.nline:
+			while len(self.genos) < self.nline:
 				# break if EOF or individual changes with the next line
-				if self.line == "" or self.sep[0] != indID:
+				if self.line == "" or self.sep[0] != self.indName:
 					break
-				# add to locus and genotype lists
-				loci += [self.sep[1]]
-				nloci += 1
-				genos += self.sep[2:]
+				# check for proper number of alleles
+				if len(self.sep) != self.ploidy + 2:
+					colNumError = True
+				# add genotype to dictionary
+				self.genos[self.sep[1]] = tuple(sorted(self.sep[2:]))
 				self.readNextLine()
-			if len(genos) != (nloci * self.ploidy):
-				dlgError(parent=None, message="Wrong number of columns on one or more lines with individual %s" % indID)
-				raise RuntimeError("Wrong number of columns on one or more lines with individual %s" % indID)
-			return (indID, tuple(genos), tuple(loci))
+
+			if colNumError:
+				dlgError(parent=None, message="Wrong number of columns on one or more lines with individual %s" % self.indName)
+				raise RuntimeError("Wrong number of columns on one or more lines with individual %s" % self.indName)
+			return multLocGeno(self.indName, self.genos)
 	
 	def readNextLine(self):
 		self.line = self.f.readline()
