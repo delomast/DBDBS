@@ -1,15 +1,14 @@
 # import genotype data window
 import mysql.connector as connector
-import re
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-	QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, QWidget, QCheckBox, QInputDialog,
-	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog,
+	QPushButton, QLabel, QComboBox, 
+	 QGridLayout, QCheckBox,
+	 QFileDialog, QVBoxLayout, QSpinBox, QDialog,
 	 QRadioButton, QHBoxLayout, QMessageBox
 )
-from .utils import (dlgError, identifier_syntax_check, getCursLoci, 
-	getCursLociAlleles, getConnection, numBits, numGenotypes, indsInPedigree,
+from .utils import (dlgError, 
+	numBits, numGenotypes, indsInPedigree,
 	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoConvertDict,
 	genoToAltCopies, getLocusOrderInBlob
 )
@@ -83,7 +82,7 @@ class importGenoWindow(QDialog):
 		self.addNewRadio.setChecked(True) # default is add new individuals
 		self.updateRadio = QRadioButton("Update existing genotypes", self)
 
-		# start import button
+		# check genotype concordance button
 		self.genoConcordanceButton = QPushButton("Check genotype concordance for updates")
 		self.genoConcordanceButton.clicked.connect(self.genoConcordance)
 
@@ -537,7 +536,6 @@ class importGenoWindow(QDialog):
 							tempList[3] += 1
 						else:
 							tempList[4] += 1
-
 					elif self.panelTypeLabel.text() == "Multiallelic":
 						# convert the sorted genotype tuple into an integer < 256
 						tempGeno = genoConvertDict[k][v]
@@ -661,7 +659,7 @@ class importGenoWindow(QDialog):
 		if inds[1] and self.fileFormat.currentText() != "long":
 			dlgError(parent=self, message="Duplicate individual names in the input file")
 			return
-		inds = inds[0]
+		inds = list(set(inds[0])) # remove duplicates - may be present if long format
 		indsInPed = indsInPedigree(self.cnx, inds)
 
 		# make sure all are in the pedigree already if updating genotypes

@@ -16,6 +16,7 @@ from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection, r
 from . import PACKAGEDIR
 from .newPanelWindow import newPanelWindow
 from .importGenoWindow import importGenoWindow
+from .exportGenoWindow import exportGenoWindow
 
 
 class interactWindow(QMainWindow):
@@ -51,7 +52,9 @@ class interactWindow(QMainWindow):
 		loginToServerButton.clicked.connect(self.login)
 		importGenoButton = QPushButton("Import genotype data")
 		importGenoButton.clicked.connect(self.importGeno)
-		exportButton = QPushButton("Export data")
+		exportGenoButton = QPushButton("Export data")
+		exportGenoButton.clicked.connect(self.exportGeno)
+
 
 
 
@@ -74,8 +77,9 @@ class interactWindow(QMainWindow):
 		layout.addWidget(cnxInfoWidget, 0, 0) # info in top left
 		layout.addWidget(loginToServerButton, 1, 0)
 		layout.addWidget(importGenoButton, 2, 0)
-		# TODO: add buttons for import and export functions here
-		# TODO: add define new tables here?
+		layout.addWidget(exportGenoButton, 3, 0)
+		# TODO: add buttons for phenotype import and export functions here
+		# TODO: add define new tables here? or in 
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
@@ -211,3 +215,10 @@ class interactWindow(QMainWindow):
 		self.igWindow = importGenoWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.igWindow.exec()
 	
+	# open export genotypes window
+	def exportGeno(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		self.egWindow = exportGenoWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.egWindow.exec()

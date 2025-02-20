@@ -181,6 +181,10 @@ def getIndsFromFile(fileName : str, fileType : str) -> list:
 		with open(fileName, "r") as f:
 			# using within family ID
 			inds = [re.split("\t| ", line.rstrip("\n"))[1] for line in f]
+	elif fileType == "forExport":
+		with open(fileName, "r") as f:
+			# no header in export file
+			inds = [line.rstrip("\n").split("\t")[0] for line in f]
 	else:
 		raise Exception("Internal error: file type not supported by getIndsFromFile")
 	
@@ -313,3 +317,16 @@ def genoToAltCopies(geno, refAlt):
 		else:
 			raise ValueError("unrecognized allele") # throw an error
 	return countAlt
+
+# converts integer giving number of copies of alternate allele and missing genotypes 
+# represented as ploidy + 1 to a tuple
+# containing the text representation of the genotype with ref allele copies first
+# and missing genotypes as empty strings for the alleles, ""
+# altCopies: integer iving number of copies of alternate allele and missing genotypes 
+# represented as ploidy + 1
+# refAlt : tuple of (refAllele, altAllele)
+# ploidy : integer of ploidy
+def altCopiesToGeno(altCopies, refAlt, ploidy):
+	if altCopies == ploidy + 1:
+		return tuple([""] * ploidy)
+	return tuple(([refAlt[0]] * (ploidy - altCopies)) + ([refAlt[1]] * altCopies))
