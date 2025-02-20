@@ -298,7 +298,7 @@ def getLocusOrderInBlob(cnx : connector, panelName : str):
 	return locusOrder
 
 # geno : iterable with each element being an allele, e.g. ("A", "C") represents a heterozygous diploid genotype
-# refAlt : tuple of (refAllele, altAllele), e.g., element of list returned by getRefAlt
+# refAlt : tuple of (refAllele, altAllele)
 # missing allele is empty string "" (only checks first allele - assumes either all missing or none missing)
 # returned genotype is number of copies of alt allele with missing genotype being (ploidy + 1)
 def genoToAltCopies(geno, refAlt):
