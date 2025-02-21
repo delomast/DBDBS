@@ -54,6 +54,10 @@ class exportGenoWindow(QDialog):
 		self.selectInputFile.clicked.connect(self.onClickInputFile)
 		self.inputFile = QLabel("")
 		self.inputFile.setWordWrap(True)
+		self.selectOutputFile = QPushButton("Save as")
+		self.selectOutputFile.clicked.connect(self.onClickOutputFile)
+		self.outputFile = QLabel("")
+		self.outputFile.setWordWrap(True)
 
 		# file format dropbox
 		self.fileFormat = QComboBox()
@@ -84,15 +88,21 @@ class exportGenoWindow(QDialog):
 		self.gridLayout.addWidget(self.fileFormat, 1, 1)
 		self.gridLayout.addWidget(QLabel("Panel ploidy"), 1, 2)
 		self.gridLayout.addWidget(self.panelPloidyLabel, 1, 3)
-		self.gridLayout.addWidget(QLabel("Batch size"), 2, 0)
-		self.gridLayout.addWidget(self.batchSizeSpinbox, 2, 1)
 		self.gridLayout.addWidget(QLabel("Number of loci"), 2, 2)
 		self.gridLayout.addWidget(self.panelSizeLabel, 2, 3)
+		# extra row and column to stretch and account for extra space
+		# allows sizing of other rows and columns to be constant
+		self.gridLayout.setRowStretch(self.gridLayout.rowCount(), 1)
+		# self.gridLayout.setColumnStretch(self.gridLayout.columnCount(), 1)
 
-		# layout for input file button and display of selected file name
-		self.fileSelectLayout = QHBoxLayout()
-		self.fileSelectLayout.addWidget(self.selectInputFile)
-		self.fileSelectLayout.addWidget(self.inputFile)
+		# layout for input/export file buttons and display of selected file names
+		self.fileSelectLayout1 = QHBoxLayout()
+		self.fileSelectLayout1.addWidget(self.selectInputFile)
+		self.fileSelectLayout1.addWidget(self.inputFile)
+		
+		self.fileSelectLayout2 = QHBoxLayout()
+		self.fileSelectLayout2.addWidget(self.selectOutputFile)
+		self.fileSelectLayout2.addWidget(self.outputFile)
 
 		# set up action button layout
 		self.gridLayout2 = QGridLayout()
@@ -102,7 +112,8 @@ class exportGenoWindow(QDialog):
 		# add grid layout as top layout in main layout
 		self.mainLayout = QVBoxLayout()
 		self.mainLayout.addLayout(self.gridLayout)
-		self.mainLayout.addLayout(self.fileSelectLayout)
+		self.mainLayout.addLayout(self.fileSelectLayout1)
+		self.mainLayout.addLayout(self.fileSelectLayout2)
 		self.mainLayout.addLayout(self.gridLayout2)
 		self.setLayout(self.mainLayout)
 
@@ -135,6 +146,13 @@ class exportGenoWindow(QDialog):
 		if tempFile == "":
 			return
 		self.inputFile.setText(tempFile)
+
+	# open file dialog for user to select an output file path
+	def onClickOutputFile(self):
+		tempFile = QFileDialog.getSaveFileName(self, "Save output as", "/home/")[0]
+		if tempFile == "":
+			return
+		self.outputFile.setText(tempFile)
 	
 	# check if individuals are 1) in pedigee and 2) in genotype panel
 	def checkNewInds(self):
@@ -180,6 +198,10 @@ class exportGenoWindow(QDialog):
 
 	# export genotypes
 	def exportGenotypes(self):
+		# make sure output file has been chosen
+		if self.outputFile.text() == "":
+			dlgError(parent=self, message="No output file name specified")
+			return
 
 		# check for duplicate inds and make sure all are in pedigree
 		inds = getIndsFromFile(self.inputFile.text(), "forExport")
@@ -231,15 +253,17 @@ class exportGenoWindow(QDialog):
 			missInt = self.panelPloidy + 1 # missing genotype value in database
 		
 		# initiate file
-		# TODO get outFilePath from user
-		outFile = open(outFilePath, "w")
+		outFile = open(self.outputFile.text(), "w")
 		# TODO
 		# write header and other files as needed
 		if self.fileFormat.currentText() == "2col":
+			# write header
 			pass
 		elif self.fileFormat.currentText() == "PLINK ped":
+			# write map file
 			pass
 		elif self.fileFormat.currentText() == "long":
+			# write header
 			pass
 
 		# write genotypes for each individual
