@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 	 QRadioButton, QHBoxLayout, QMessageBox
 )
 from .utils import (dlgError, 
-	numBits, numGenotypes, indsInPedigree,
+	numBits, numGenotypes, indsInPedigree, alleleSyntaxCheck,
 	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoConvertDict,
 	genoToAltCopies, getLocusOrderInBlob
 )
@@ -202,6 +202,10 @@ class importGenoWindow(QDialog):
 			v.difference_update(panelAlleles[k])
 			# if new alleles, save them
 			if len(v) > 0:
+				for a in v:
+					if not alleleSyntaxCheck(a):
+						dlgError(parent=self, message="Locus \"%s\" has an invalid allele value, \"%s\"" % (k, a))
+						return
 				self.newAlleles[k] = v
 		del panelAlleles
 		del inputAlleleDict # defensive, b/c will point to some of the same objects as self.newAlleles
@@ -284,7 +288,7 @@ class importGenoWindow(QDialog):
 						newAllele_id += 1
 					curs.execute(sqlState.rstrip(","))
 		
-		
+		self.cnx.commit() # commit addition of new alleles
 		msgBox = QMessageBox(parent=self)
 		msgBox.setWindowTitle("Add new alleles")
 		msgBox.setText("Successfully added new alleles for %s loci." % len(self.newAlleles))
@@ -332,6 +336,9 @@ class importGenoWindow(QDialog):
 
 	# check if individuals are 1) in pedigee and 2) in genotype panel
 	def checkNewInds(self):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return
 		# get list of inds
 		inds = getIndsFromFile(self.inputFile.text(), self.fileFormat.currentText())
 		if inds[1] and self.fileFormat.currentText() != "long":
@@ -372,6 +379,9 @@ class importGenoWindow(QDialog):
 					fout.write("\t".join([name, "FALSE", "FALSE"]) + "\n")
 
 	def checkLociNames(self, s = None, interact = True):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return
 		# get locus names from import file
 		if self.fileFormat.currentText() == "long":
 			h = set()
@@ -433,6 +443,9 @@ class importGenoWindow(QDialog):
 	# check concordance of genotypes in file before updating genotypes of 
 	# previously genotyped individuals
 	def genoConcordance(self):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return
 		if not self.updateRadio.isChecked():
 			dlgError(parent=self, message="This function is only for when you intend to update previously genotyped individuals")
 			return
@@ -616,6 +629,10 @@ class importGenoWindow(QDialog):
 
 	# import genotypes
 	def importGenotypes(self):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return
+
 		if not self.updateRadio.isChecked() and not self.addNewRadio.isChecked():
 			dlgError(parent=self, message="You must indicate either add new genotypes or update existing genotypes")
 			return
@@ -669,7 +686,8 @@ class importGenoWindow(QDialog):
 		
 		retValue = addToPedigree(self.cnx, indsInPed[1], sire = None, dam = None)
 		if retValue != 0:
-			raise Exception("Internal error") 
+			dlgError(parent=self, message="Error trying to add individuals to the pedigree")
+			return
 		
 		# check for presence of individuals in the genotype table
 		tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")

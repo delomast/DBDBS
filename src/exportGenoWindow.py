@@ -1,21 +1,18 @@
 # export genotype data window
 import mysql.connector as connector
 import re
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-	QMainWindow, QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, QWidget, QCheckBox, QInputDialog,
-	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog,
-	 QRadioButton, QHBoxLayout, QMessageBox
+	QPushButton, QLabel, QComboBox, 
+	 QGridLayout,
+	 QFileDialog, QVBoxLayout, QDialog,
+	 QHBoxLayout, QMessageBox
 )
-from .utils import (dlgError, identifier_syntax_check, getCursLoci, 
-	getCursLociAlleles, getConnection, numBits, numGenotypes, indsInPedigree,
-	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict, getGenoConvertDict,
-	genoToAltCopies, getLocusOrderInBlob, altCopiesToGeno
+from .utils import (dlgError, 
+	numBits, indsInPedigree,
+	indsInTable, getIndsFromFile, getIndIDdict, getGenoConvertDict,
+	getLocusOrderInBlob, altCopiesToGeno
 )
 from .genotypeFileIterators import *
-from itertools import combinations_with_replacement
-from statistics import fmean
 
 
 # TODO add option to export PLINK format with accurate pedigree
@@ -50,7 +47,7 @@ class exportGenoWindow(QDialog):
 		# file selection button and label
 		# input file is list of individual names to export genotypes for
 		# one name per line, no header
-		self.selectInputFile = QPushButton("Select input file")
+		self.selectInputFile = QPushButton("Sample names file")
 		self.selectInputFile.clicked.connect(self.onClickInputFile)
 		self.inputFile = QLabel("")
 		self.inputFile.setWordWrap(True)
@@ -156,6 +153,9 @@ class exportGenoWindow(QDialog):
 	
 	# check if individuals are 1) in pedigee and 2) in genotype panel
 	def checkNewInds(self):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return
 		# get list of inds
 		inds = getIndsFromFile(self.inputFile.text(), "forExport")
 		if inds[1]:
@@ -202,25 +202,31 @@ class exportGenoWindow(QDialog):
 		if self.outputFile.text() == "":
 			dlgError(parent=self, message="No output file name specified")
 			return
-
-		# check for duplicate inds and make sure all are in pedigree
-		inds = getIndsFromFile(self.inputFile.text(), "forExport")
-		if inds[1]:
-			dlgError(parent=self, message="Duplicate individual names in the input file")
-			return
-		inds = inds[0]
-		indsInPed = indsInPedigree(self.cnx, inds)
-
-		# make sure all are in the pedigree already
-		if len(indsInPed[1]) > 0:
-			dlgError(parent=self, message="You are trying to export genotypes but one or more individuals is not in the pedigree")
-			return
 		
-		# check for presence of individuals in the genotype table
-		tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")
-		if len(tableCheck[1]) > 0:
-			dlgError(parent=self, message="You are trying to export genotypes but one or more individuals is not already in the genotype table")
-			return
+		if self.inputFile.text() != "":
+			# check for duplicate inds and make sure all are in pedigree
+			inds = getIndsFromFile(self.inputFile.text(), "forExport")
+			if inds[1]:
+				dlgError(parent=self, message="Duplicate individual names in the input file")
+				return
+			inds = inds[0]
+			indsInPed = indsInPedigree(self.cnx, inds)
+
+			# make sure all are in the pedigree already
+			if len(indsInPed[1]) > 0:
+				dlgError(parent=self, message="You are trying to export genotypes but one or more individuals is not in the pedigree")
+				return
+			
+			# check for presence of individuals in the genotype table
+			tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")
+			if len(tableCheck[1]) > 0:
+				dlgError(parent=self, message="You are trying to export genotypes but one or more individuals is not already in the genotype table")
+				return
+		else:
+			# if no individual list specified, export entire genotype table
+			with self.cnx.cursor() as curs:
+				curs.execute("SELECT p.ind FROM intDBpedigree AS p INNER JOIN `intDB%s_gt` AS gt ON p.ind_id = gt.ind_id" % self.panelComboBox.currentText())
+				inds = [x[0] for x in curs]
 		
 		# build dictionary of ind names and ind_id
 		indIDlookup = getIndIDdict(self.cnx, inds)
@@ -254,17 +260,24 @@ class exportGenoWindow(QDialog):
 		
 		# initiate file
 		outFile = open(self.outputFile.text(), "w")
-		# TODO
 		# write header and other files as needed
 		if self.fileFormat.currentText() == "2col":
 			# write header
-			pass
+			outFile.write("ind_name\t" + "\t".join(["%s.a%s" % (lname, x) for lname in locusOrder for x in range(1, self.panelPloidy + 1)]) + "\n")
 		elif self.fileFormat.currentText() == "PLINK ped":
+			if self.panelPloidy != 2:
+				dlgError(parent=self, message="PLINK format is only defined for diploid data")
+				return
+			# no header line for ped file
 			# write map file
-			pass
+			with open(re.sub(".ped$", "", self.outputFile.text()) + ".map", "w") as mapFile:
+				# no header line
+				for lname in locusOrder:
+					# chrom, variant name, position in cM, position in bp
+					mapFile.write("1\t" + lname + "\t0\t0\n")
 		elif self.fileFormat.currentText() == "long":
 			# write header
-			pass
+			outFile.write("ind_name\tlocus\t" + "\t".join(["allele_%s" % x for x in range(1, self.panelPloidy + 1)]) + "\n")
 
 		# write genotypes for each individual
 		curs = self.cnx.cursor() # open cursor to retrieve genotypes

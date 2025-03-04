@@ -68,13 +68,51 @@ def saveInfo(userInfo : dict):
 				curs_db.close()
 	gui_db.close()
 
-# check that does not begin with $ or end with space, len <= 54, no newlines
+# check that does not begin with $ or end with space, len <= 54, no newlines, no backtick `, no backslash \
 # does not start with "IntDB" (case insensitive)
 # this is a partial check for valid syntax for quoted identifiers
 # using one length for simplicity even though some (e.g., db name) could be longer
 # returns True for good syntax, False for bad
 def identifier_syntax_check(ident :  str) -> bool:
-	if not re.fullmatch("^.{1,54}$", ident) or re.search("^\\$| $|^IntDB", ident, flags=re.IGNORECASE):
+	if not re.fullmatch("^.{1,54}$", ident) or re.search("^\\$| $|^IntDB|`", ident, flags=re.IGNORECASE):
+		return False
+	if "\\" in ident:
+		return False
+	return True
+
+# check that an individual name is valid syntax
+# 255 or less bytes with utf8
+# not equal to empty string
+# does not contain single quote ' or backslash \
+# return False if invalid, otherwise True
+def indNameSyntaxCheck(name : str) -> bool:
+	if len(name.encode("utf-8")) > 255:
+		return False
+	if name == "":
+		return False
+	if "'" in name:
+		return False
+	if "\\" in name:
+		return False
+	return True
+
+# check that an allele is valid syntax
+# 255 or less bytes with utf8
+# not equal to empty string
+# does not contain single quote ' comma , whitespace, backslash \
+# return False if invalid, otherwise True
+def alleleSyntaxCheck(allele : str) -> bool:
+	if len(allele.encode("utf-8")) > 255:
+		return False
+	if allele == "":
+		return False
+	if "'" in allele:
+		return False
+	if "," in allele:
+		return False
+	if "\\" in allele:
+		return False
+	if re.search(r"\s", allele):
 		return False
 	return True
 
@@ -170,58 +208,145 @@ def indsInTable(cnx : connector, inds : list, tableName : str):
 	outTable = [x for x in inds if x not in inTable]
 	return (tuple(inTable), tuple(outTable))
 
-# return a list of individual names from a 2col format file
+# return a list of individual names from an import file
 # and a boolean of whether there are duplicate ind names
 def getIndsFromFile(fileName : str, fileType : str) -> list:
-	if fileType == "2col" or fileType == "long":
-		with open(fileName, "r") as f:
+	with open(fileName, "r") as f:
+		if fileType == "2col" or fileType == "long":
 			header = f.readline() # skip header
 			inds = [line.rstrip("\n").split("\t")[0] for line in f]
-	elif fileType == "PLINK ped":
-		with open(fileName, "r") as f:
+		elif fileType == "PLINK ped":
 			# using within family ID
 			inds = [re.split("\t| ", line.rstrip("\n"))[1] for line in f]
-	elif fileType == "forExport":
-		with open(fileName, "r") as f:
-			# no header in export file
-			inds = [line.rstrip("\n").split("\t")[0] for line in f]
-	else:
-		raise Exception("Internal error: file type not supported by getIndsFromFile")
+		elif fileType == "forExport":
+			# no header in export file, only one column
+			inds = [line.rstrip("\n") for line in f]
+		elif fileType == "pedImport":
+			# file is indName, sireName, damName
+			# with a header
+			# tab separated
+			# returns list of inds only, no sires or dams
+			header = f.readline() # skip header
+			inds = []
+			allInds = set()
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				inds.append(sep[0])
+		elif fileType == "sireDam":
+			# file is indName, sireName, damName
+			# with a header
+			# tab separated
+			# returns list of sires and dams only
+			header = f.readline() # skip header
+			inds = []
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				inds.append(sep[1])
+				inds.append(sep[2])
+		else:
+			raise Exception("Internal error: file type not supported by getIndsFromFile")
 	
 	# check for duplicates
 	if len(inds) > len(set(inds)):
 		dups = True
 	else:
 		dups = False
+	# check individual name syntax
+	for name in inds:
+		if not indNameSyntaxCheck(name):
+			dlgError(message="Invalid individual name, \"%s\" found." % name)
+			raise Exception("Incorrect individual name syntax") # some badly formatted names can cause issues so terminating program
 	return [tuple(inds), dups]
 
 # add individuals to the pedigree (optionally sire and dam information as well)
 # inds, sire, dam are either tuples or lists
+# returns 0 is sucessful, a different integer otherwise
 def addToPedigree(cnx: connector, inds, sire = None, dam = None):
 	if len(inds) == 0:
 		return 0
+	# make sure names are valid
+	for name in inds:
+		if not indNameSyntaxCheck(name):
+			dlgError(message="Invalid individual name, \"%s\" found." % name)
+			return 1
+
 	with cnx.cursor() as curs:
 		if sire is None and dam is None:
 			# just add inds
 			sqlState = "INSERT INTO intDBpedigree (ind) VALUES"
 			for name in inds:
-				if name == "":
-					dlgError(message="Invalid individual name (empty string) found.")
-					raise ValueError("Empty string cannot be an individual name.")
 				sqlState += " ('%s')," % name
 			curs.execute(sqlState.rstrip(","))
-		elif sire is None:
-			if len(inds) != len(dam):
+		elif sire is None or dam is None:
+			# inserting with just one parent known
+			if sire is None:
+				colName = "dam"
+				parents = dam
+			else:
+				colName = "sire"
+				parents = sire
+			if len(inds) != len(parents):
 				return 1
-			pass
-		elif dam is None:
-			if len(inds) != len(sire):
+			uPar = set(parents) # remove dups
+			uPar = [x for x in uPar if x != ""] # remove empty string
+			for name in uPar:
+				if not indNameSyntaxCheck(name):
+					dlgError(message="Invalid individual name, \"%s\" found." % name)
+					return 1
+			# make sure all in pedigree
+			tempInPed = indsInPedigree(cnx, uPar)
+			if len(tempInPed[1]) > 0:
+				dlgError(message="Some %ss are not in the pedigree" % colName)
 				return 1
-			pass
+			del tempInPed
+			# get id lookup
+			uPar = getIndIDdict(cnx, uPar)
+			# translate names to ids
+			parID = []
+			for d in parents:
+				if d == "":
+					parID.append("NULL")
+				else:
+					parID.append(uPar[d])
+			sqlState = "INSERT INTO intDBpedigree (ind, %s) VALUES" % colName
+			for name, pID in zip(inds, parID):
+				sqlState += " ('%s', %s)," % (name, pID)
+			curs.execute(sqlState.rstrip(","))
 		else:
 			if len(inds) != len(sire) or len(inds) != len(dam):
 				return 1
-			pass
+			# inserting with both dam and sire
+			uPar = set(dam + sire) # remove dups
+			uPar = [x for x in uPar if x != ""] # remove empty string
+			for name in uPar:
+				if not indNameSyntaxCheck(name):
+					dlgError(message="Invalid individual name, \"%s\" found." % name)
+					return 1
+			# make sure all in pedigree
+			tempInPed = indsInPedigree(cnx, uPar)
+			if len(tempInPed[1]) > 0:
+				dlgError(message="Some parents are not in the pedigree")
+				return 1
+			del tempInPed
+			# get id lookup
+			uPar = getIndIDdict(cnx, uPar)
+			# translate names to ids
+			damID = []
+			sireID = []
+			for d in dam:
+				if d == "":
+					damID.append("NULL")
+				else:
+					damID.append(uPar[d])
+			for s in sire:
+				if s == "":
+					sireID.append("NULL")
+				else:
+					sireID.append(uPar[s])
+			sqlState = "INSERT INTO intDBpedigree (ind, sire, dam) VALUES"
+			for name, sID, dID in zip(inds, sireID, damID):
+				sqlState += " ('%s', %s, %s)," % (name, sID, dID)
+			curs.execute(sqlState.rstrip(","))
 	return 0
 
 # get ind_id from database and return dict

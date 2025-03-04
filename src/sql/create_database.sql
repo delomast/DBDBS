@@ -28,6 +28,6 @@ CREATE TABLE intDBpedigree (
 	ind VARCHAR (255) UNIQUE NOT NULL,
 	sire INTEGER UNSIGNED,
 	dam INTEGER UNSIGNED,
-	INDEX (sire), -- indexing all columns for fast joins and searches
-	INDEX (dam)
+	FOREIGN KEY (dam) REFERENCES intDBpedigree(ind_id), -- dam and sire must be present
+	FOREIGN KEY (sire) REFERENCES intDBpedigree(ind_id)
 );

@@ -17,6 +17,7 @@ from . import PACKAGEDIR
 from .newPanelWindow import newPanelWindow
 from .importGenoWindow import importGenoWindow
 from .exportGenoWindow import exportGenoWindow
+from .pedWindow import pedWindow
 
 
 class interactWindow(QMainWindow):
@@ -52,8 +53,12 @@ class interactWindow(QMainWindow):
 		loginToServerButton.clicked.connect(self.login)
 		importGenoButton = QPushButton("Import genotype data")
 		importGenoButton.clicked.connect(self.importGeno)
-		exportGenoButton = QPushButton("Export data")
+		exportGenoButton = QPushButton("Export genotype data")
 		exportGenoButton.clicked.connect(self.exportGeno)
+		importExportPedButton = QPushButton("Import or export pedigree")
+		importExportPedButton.clicked.connect(self.importExportPed)
+
+
 
 
 
@@ -174,6 +179,7 @@ class interactWindow(QMainWindow):
 			with open(os.path.join(PACKAGEDIR, "sql/create_database.sql"), mode="r", encoding = "utf-8") as f:
 				for res in curs.execute(f.read(), multi = True):
 					pass # have to iterate through to execute all statements
+		self.cnx.commit()
 		
 		# update values
 		self.userInfo["db"] = self.cnx.database
@@ -222,3 +228,10 @@ class interactWindow(QMainWindow):
 			return
 		self.egWindow = exportGenoWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.egWindow.exec()
+
+	def importExportPed(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		self.epWindow = pedWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.epWindow.exec()

@@ -1,12 +1,11 @@
 # make a new panel window
 import mysql.connector as connector
-import re
 from PyQt6.QtWidgets import (
 	QPushButton, QLabel, QLineEdit, QComboBox, 
 	 QGridLayout, 
 	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
 )
-from .utils import (dlgError, identifier_syntax_check, getCursLoci, 
+from .utils import (dlgError, identifier_syntax_check, alleleSyntaxCheck,
 	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel
 )
 from collections import deque
@@ -140,13 +139,12 @@ class newPanelWindow(QDialog):
 					return
 		
 		# detect varchar sizes and more input checks
-		# this does NOT check whether locus names are unique
-		# this is not done b/c it would require storing all names in memory
 		colNames = [x.text() for x in self.columnType_labels]
 		colTypes = [x.currentText() for x in self.columnType_comboboxes]
 		vChar = [i for i in range(0,len(colTypes)) if colTypes[i] in ("Locus name", "VARCHAR", "Alt allele", "Ref allele", "Alleles")]
 		locName_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "Locus name"][0]
 		toCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] in ("Alt allele", "Ref allele", "Alleles")]
+		otherCol_pos = [i for i in range(0,len(colTypes)) if colTypes[i] not in ("Alt allele", "Ref allele", "Alleles", "Locus name")]
 		maxLen = [0] * len(vChar)
 		locusNames = set()
 		locusCount = 0 # number of loci in panel definition file
@@ -159,15 +157,15 @@ class newPanelWindow(QDialog):
 				for i in range(0, len(vChar)):
 					if len(line[vChar[i]]) > maxLen[i]:
 						maxLen[i] = len(line[vChar[i]])
+				# make sure no characters to mess up sql insert statement
+				for i in otherCol_pos:
+					if "'" in line[i] or line[i].endswith("\\"):
+						dlgError(parent = self, message="Invalid character in locus \"%s\" column \"%s\"" % (line[locName_pos], colNames[i]))
 				# make sure locus names are valid identifiers
 				if not identifier_syntax_check(line[locName_pos]):
 					dlgError(parent=self, message="Locus \"%s\" has an invalid name" % line[locName_pos])
 					return
-				# Make sure alt allele, ref allele, and alleles are valid values, if present (no whitespace, unique)
-				for j in toCheck_pos:
-					if re.search(r"\s", line[j]):
-						dlgError(parent=self, message="Locus \"%s\" has an invalid value (contains whitespace) for %s" % (line[locName_pos], colTypes[j]))
-						return
+				# Make sure alt allele, ref allele, and alleles are valid values, if present (no whitespace, no single quotes, unique)
 				if len(toCheck_pos) == 2:
 					# ref and alt
 					if line[toCheck_pos[0]] == line[toCheck_pos[1]]:
@@ -176,12 +174,21 @@ class newPanelWindow(QDialog):
 					elif line[toCheck_pos[0]] == "" or line[toCheck_pos[1]] == "":
 						dlgError(parent=self, message="Locus \"%s\" is missing either a ref or an alt allele" % line[locName_pos])
 						return
+					for j in toCheck_pos:
+						if not alleleSyntaxCheck(line[j]):
+							dlgError(parent=self, message="Locus \"%s\" has an invalid allele value" % line[locName_pos])
+							return
 				elif len(toCheck_pos) == 1:
 					# alleles
 					alleles = line[toCheck_pos[0]].split(",")
 					if len(alleles) > len(set(alleles)):
 						dlgError(parent=self, message="Locus \"%s\" has the same allele listed more than once" % line[locName_pos])
 						return
+					if len(alleles) > 1 or alleles[0] != "":
+						for a in alleles:
+							if not alleleSyntaxCheck(a):
+								dlgError(parent=self, message="Locus \"%s\" has an invalid allele value" % line[locName_pos])
+								return
 		if len(locusNames) < locusCount:
 			dlgError(parent=self, message="Duplicate locus names found")
 			return
@@ -288,7 +295,7 @@ class newPanelWindow(QDialog):
 				sqlState = "CREATE TABLE `%s` (locus_id INTEGER UNSIGNED NOT NULL, genotype_id TINYINT UNSIGNED NOT NULL," % ("intDB" + self.panelNameBox.text() + "_lt")
 				alleleCols = []
 				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					sqlState += " allele_%s VARCHAR(255) NOT NULL," % i
+					sqlState += " allele_%s VARCHAR(65535) NOT NULL," % i
 					alleleCols += ["allele_%s" % i]
 				sqlState += " FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), PRIMARY KEY (locus_id, genotype_id), INDEX (%s))" % (self.panelNameBox.text(), ",".join(alleleCols))
 				del alleleCols # defensive
@@ -328,7 +335,7 @@ class newPanelWindow(QDialog):
 				CREATE TABLE `%s` (
 				locus_id INTEGER UNSIGNED NOT NULL, 
 				allele_id TINYINT UNSIGNED NOT NULL, 
-				allele VARCHAR(255) NOT NULL,
+				allele VARCHAR(65535) NOT NULL,
 				FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), 
 				PRIMARY KEY (locus_id, allele_id),
 				INDEX (allele))
