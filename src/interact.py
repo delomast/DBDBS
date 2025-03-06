@@ -83,6 +83,7 @@ class interactWindow(QMainWindow):
 		layout.addWidget(loginToServerButton, 1, 0)
 		layout.addWidget(importGenoButton, 2, 0)
 		layout.addWidget(exportGenoButton, 3, 0)
+		layout.addWidget(importExportPedButton, 4, 0)
 		# TODO: add buttons for phenotype import and export functions here
 		# TODO: add define new tables here? or in 
 		widget = QWidget()

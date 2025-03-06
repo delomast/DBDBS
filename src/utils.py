@@ -184,9 +184,11 @@ def removePartialPanel(userInfo : dict, panelName : str):
 # returns a tuple of two tuples, first has inds in 
 # the pedigree, second has inds not in the pedigree
 def indsInPedigree(cnx : connector, inds : list):
-	with cnx.cursor() as curs:
-		curs.execute("SELECT ind FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
-		inPed = [x[0] for x in curs]
+	inPed = []
+	if len(inds) > 0:
+		with cnx.cursor() as curs:
+			curs.execute("SELECT ind FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
+			inPed = [x[0] for x in curs]
 	outPed = [x for x in inds if x not in inPed]
 	return (tuple(inPed), tuple(outPed))
 
@@ -241,8 +243,11 @@ def getIndsFromFile(fileName : str, fileType : str) -> list:
 			inds = []
 			for line in f:
 				sep = line.rstrip("\n").split("\t")
-				inds.append(sep[1])
-				inds.append(sep[2])
+				# avoid missing sire and dam values
+				if sep[1] != "":
+					inds.append(sep[1])
+				if sep[2] != "":
+					inds.append(sep[2])
 		else:
 			raise Exception("Internal error: file type not supported by getIndsFromFile")
 	
@@ -352,11 +357,12 @@ def addToPedigree(cnx: connector, inds, sire = None, dam = None):
 # get ind_id from database and return dict
 # key of ind name, value of ind_id
 def getIndIDdict(cnx : connector, inds : list):
-	with cnx.cursor() as curs:
-		curs.execute("SELECT ind, ind_id FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
-		indID = {}
-		for x in curs:
-			indID[x[0]] = x[1]
+	indID = {}
+	if len(inds) > 0:
+		with cnx.cursor() as curs:
+			curs.execute("SELECT ind, ind_id FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
+			for x in curs:
+				indID[x[0]] = x[1]
 	return indID
 
 # get the dictionary object used to convert input genotypes from a file into

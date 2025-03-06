@@ -1,19 +1,15 @@
 # import pedigree records window
 import mysql.connector as connector
-import re
 from PyQt6.QtWidgets import (
-	QPushButton, QLabel, QComboBox, 
+	QPushButton, QLabel, 
 	 QGridLayout, QRadioButton,
 	 QFileDialog, QVBoxLayout, QDialog,
 	 QHBoxLayout, QMessageBox
 )
 from .utils import (dlgError, 
-	numBits, indsInPedigree, addToPedigree,
-	indsInTable, getIndsFromFile, getIndIDdict, getGenoConvertDict,
-	getLocusOrderInBlob, altCopiesToGeno
+	indsInPedigree, addToPedigree,
+	getIndsFromFile, getIndIDdict
 )
-from .genotypeFileIterators import *
-
 
 
 # using QDialog class and exec to block other windows - only one active window at a time
@@ -28,18 +24,22 @@ class pedWindow(QDialog):
 
 		# import new, update existing, or export radio buttons
 		self.addNewRadio = QRadioButton("Add new individuals", self)
+		self.addNewRadio.toggled.connect(self.onActionSelectionChange)
 		self.updateRadio = QRadioButton("Update existing individuals", self)
+		self.updateRadio.toggled.connect(self.onActionSelectionChange)
 		self.exportRadio = QRadioButton("Export pedigree", self)
 		self.exportRadio.setChecked(True) # default is export pedigree
+		self.exportRadio.toggled.connect(self.onActionSelectionChange)
 
 		# file selection button and label
 		# input file is list of individual names to export genotypes for
 		# one name per line, no header
-		self.selectInputFile = QPushButton("Sample names file")
+		self.selectInputFile = QPushButton("Choose input file")
 		self.selectInputFile.clicked.connect(self.onClickInputFile)
 		self.inputFile = QLabel("")
 		self.inputFile.setWordWrap(True)
-		self.selectOutputFile = QPushButton("Save as")
+		self.inputFileHeaderInfo = QLabel("")
+		self.selectOutputFile = QPushButton("Save export as")
 		self.selectOutputFile.clicked.connect(self.onClickOutputFile)
 		self.outputFile = QLabel("")
 		self.outputFile.setWordWrap(True)
@@ -48,12 +48,15 @@ class pedWindow(QDialog):
 		self.checkIndsButton = QPushButton("Check if individuals are in the database")
 		self.checkIndsButton.clicked.connect(self.checkNewInds)
 
-		# start export button
-		self.startButton = QPushButton("Go")
+		# start import or export button
+		self.startButton = QPushButton("Start import or export")
 		self.startButton.clicked.connect(self.startAction)
 
 		# set up layout
 		self.gridLayout = QGridLayout()
+		self.gridLayout.addWidget(self.addNewRadio, 0, 0)
+		self.gridLayout.addWidget(self.updateRadio, 1, 0)
+		self.gridLayout.addWidget(self.exportRadio, 2, 0)
 
 		# layout for input/export file buttons and display of selected file names
 		self.fileSelectLayout1 = QHBoxLayout()
@@ -72,11 +75,23 @@ class pedWindow(QDialog):
 		# add grid layout as top layout in main layout
 		self.mainLayout = QVBoxLayout()
 		self.mainLayout.addLayout(self.gridLayout)
+		self.mainLayout.addWidget(self.inputFileHeaderInfo)
 		self.mainLayout.addLayout(self.fileSelectLayout1)
 		self.mainLayout.addLayout(self.fileSelectLayout2)
 		self.mainLayout.addLayout(self.gridLayout2)
 		self.setLayout(self.mainLayout)
+		
+		# write label text for initial selection
+		self.onActionSelectionChange()
 
+	# change info about header in input file
+	def onActionSelectionChange(self):
+		if self.exportRadio.isChecked():
+			self.inputFileHeaderInfo.setText("Input file optional, no header row")
+		elif self.addNewRadio.isChecked() or self.updateRadio.isChecked():
+			self.inputFileHeaderInfo.setText("Three column input file (Ind, Sire, Dam), header row required")
+		else:
+			self.inputFileHeaderInfo.setText("")
 
 	# open file dialog for user to select an input file
 	def onClickInputFile(self):
@@ -106,8 +121,9 @@ class pedWindow(QDialog):
 		if msgTxt is None:
 			return # keeps window open
 		
-		# commit transaction after all individuals successfully added
-		self.cnx.commit()
+		# commit transaction after all individuals successfully added or updated
+		if self.updateRadio.isChecked() or self.addNewRadio.isChecked():
+			self.cnx.commit()
 
 		messageBox = QMessageBox(parent=self)
 		messageBox.setWindowTitle("Pedigree import/export")
@@ -115,16 +131,132 @@ class pedWindow(QDialog):
 		messageBox.exec()
 		self.close()
 	
+	# this should probably be converted to a utility function to allow other export routines (genotype or phenotype export)
+	# to call it
+	# export the pedigree
+	# either 1) the entire pedigree or 
+	# 2) a group of individuals and their ancestors
+	# considering adding - 3) a group of individuals and all their 
+	# relatives (ancestors and descendents)
 	def exportPedigree(self):
-		# TODO
-		pass
-	
-	def updatePedigree(self):
-		# TODO
-		pass
+		# get pedigree
+		curs = self.cnx.cursor()
+		if self.inputFile.text() == "":
+			# if no input list of individuals, export the entire pedigree
+			# select ind name, sire name, dam name
+			# sire name and dam name are from left joins
+			curs.execute("SELECT p.ind, sire.ind AS sire, dam.ind AS dam FROM intDBpedigree AS p LEFT JOIN intDBpedigree AS dam ON p.dam = dam.ind_id " + 
+				"LEFT JOIN intDBpedigree AS sire ON p.sire = sire.ind_id ORDER BY p.ind_id")
+		else:
+			# check for duplicate inds and make sure all are in pedigree
+			inds = getIndsFromFile(self.inputFile.text(), "forExport")
+			if inds[1]:
+				dlgError(parent=self, message="Duplicate individual names in the input file")
+				return
+			inds = inds[0]
+			indsInPed = indsInPedigree(self.cnx, inds)
 
+			# make sure all are in the pedigree already
+			if len(indsInPed[1]) > 0:
+				dlgError(parent=self, message="One or more individuals is not in the pedigree")
+				return
+			
+			# iteratively getting pedigree
+			# first selects the individuals requested
+			# then iteratively selects the sires and dams
+			# does not repeat rows
+			# then translates id integers to original ids
+			# orders by ind_id, which is order inds were added to the database
+			# cte_max_recursion_depth is the number of generations it will go back 
+			# before throwing an error
+			curs.execute("""WITH RECURSIVE cte (ind_id, sire, dam) AS(
+SELECT ind_id, sire, dam FROM intDBpedigree 
+WHERE ind IN (%s)
+UNION DISTINCT
+SELECT p2.ind_id, p2.sire, p2.dam 
+FROM intDBpedigree AS p2, cte AS c 
+WHERE p2.ind_id = c.sire OR p2.ind_id = c.dam
+)
+SELECT /*+ SET_VAR(cte_max_recursion_depth = 10000) */ tp.ind AS ind, sire.ind AS sire, dam.ind AS dam 
+FROM cte 
+LEFT JOIN 
+intDBpedigree AS tp ON cte.ind_id = tp.ind_id
+LEFT JOIN 
+intDBpedigree AS sire ON cte.sire = sire.ind_id
+LEFT JOIN
+intDBpedigree AS dam ON cte.dam = dam.ind_id
+ORDER BY cte.ind_id;""" % ", ".join(["'%s'" % x for x in inds]))
+		
+		# write out pedigree
+		with open(self.outputFile.text(), "w") as outFile:
+			outFile.write("Ind\tSire\tDam\n")
+			for row in curs:
+				outFile.write("\t".join([x if x is not None else "" for x in row]) + "\n")
+		# close cursor
+		curs.close()
+		return "Pedigree export completed"
+
+	
+	# update dam and sire for individuals in the pedigree
+	def updatePedigree(self):
+		if self.inputFile.text() == "":
+			dlgError(parent=self, message="No input file is selected")
+			return None
+
+		# check if inds are in pedigree
+		inds = getIndsFromFile(self.inputFile.text(), "pedImport") # get list of inds
+		if inds[1]:
+			dlgError(parent=self, message="Duplicate individual names in the input file")
+			return None
+		inds = list(inds[0])
+		pedStatus = indsInPedigree(self.cnx, inds) # check if in pedigree
+		if len(pedStatus[1]) > 0:
+			dlgError(parent=self, message="Some individuals in the input are not in the pedigree")
+			return None
+		
+		# make sure all sires and dams are in the pedigree
+		sireDamInds = list(set(getIndsFromFile(self.inputFile.text(), "sireDam")[0])) # get a list of the sires and dams
+		pedStatusSD = indsInPedigree(self.cnx, sireDamInds) # check if in pedigree
+		if len(pedStatusSD[1]) > 0:
+			dlgError(parent=self, message="Some sires and/or dams are not already in the pedigree")
+			return None
+		
+		# update the pedigree
+		inds = []
+		sires = []
+		dams = []
+		with open(self.inputFile.text(), "r") as f:
+			header = f.readline() # skip header
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				inds.append(sep[0])
+				sires.append(sep[1])
+				dams.append(sep[2])
+		# translate to IDs
+		IDdict = getIndIDdict(self.cnx, list(set(inds + sireDamInds)))
+		# translate names to ids
+		indID = [IDdict[x] for x in inds]
+		damID = []
+		sireID = []
+		for d in dams:
+			if d == "":
+				damID.append("NULL")
+			else:
+				damID.append(IDdict[d])
+		for s in sires:
+			if s == "":
+				sireID.append("NULL")
+			else:
+				sireID.append(IDdict[s])
+		with self.cnx.cursor() as curs:
+			for i, s, d in zip(indID, sireID, damID):
+				curs.execute("UPDATE `intDBpedigree` SET sire = %s, dam = %s WHERE ind_id = %s" % (s, d, i))
+		# return a message to show the user
+		return "The pedigree was successfully updated"
+
+
+	# add new individuals to the pedigree
 	def addNewInds(self):
-		# TODO test this function
 		if self.inputFile.text() == "":
 			dlgError(parent=self, message="No input file is selected")
 			return None
