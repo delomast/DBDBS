@@ -10,6 +10,10 @@ CREATE TABLE intDBgeno_overview (
 -- create phenotype table information table
 CREATE TABLE intDBpheno_overview (
 	table_name VARCHAR(64) UNIQUE NOT NULL,
+	ind_name_col VARCHAR(64),
+	sire_name_col VARCHAR(64),
+	dam_name_col VARCHAR(64),
+	time_obs_col VARCHAR(64) NOT NULL,
 	number_of_phenos INTEGER UNSIGNED NOT NULL,
 	table_description TEXT
 );

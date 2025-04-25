@@ -18,6 +18,7 @@ from .newPanelWindow import newPanelWindow
 from .importGenoWindow import importGenoWindow
 from .exportGenoWindow import exportGenoWindow
 from .pedWindow import pedWindow
+from .newPhenoTableWindow import newPhenoTableWindow
 
 
 class interactWindow(QMainWindow):
@@ -45,8 +46,16 @@ class interactWindow(QMainWindow):
 		removeEmptyPanel_button = QAction("Remove an empty genotype panel", self)
 		removeEmptyPanel_button.setStatusTip("This can remove a genotype panel that does not have any genotypes in it")
 		removeEmptyPanel_button.triggered.connect(self.removeEmptyPanel)
+		# TODO add a new individual phenotype table
+		makePhenoTable_button = QAction("Add a new phenotype panel", self)
+		makePhenoTable_button.setStatusTip("This creates a new phenotype panel in the current database")
+		makePhenoTable_button.triggered.connect(self.makePhenoTable)
+
+		# TODO add a new family phenotype table
+
+		# TODO remove an empty phenotype table
 		
-		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button])
+		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button, makePhenoTable_button])
 
 		# define widgets
 		loginToServerButton = QPushButton("Login to server") # login button
@@ -57,6 +66,13 @@ class interactWindow(QMainWindow):
 		exportGenoButton.clicked.connect(self.exportGeno)
 		importExportPedButton = QPushButton("Import or export pedigree")
 		importExportPedButton.clicked.connect(self.importExportPed)
+
+		# TODO import individual phenoptypes
+		# TODO export individual phenoptypes
+		# TODO import family phenoptypes
+		# TODO export family phenoptypes
+		# TODO remove genotypes
+		# TODO remove phenoptypes
 
 
 
@@ -195,6 +211,15 @@ class interactWindow(QMainWindow):
 		self.npWindow = newPanelWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.npWindow.exec()
 	
+	# open window to define a new phenotype panel
+	def makePhenoTable(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		# open the add a new panel window
+		self.nptWindow = newPhenoTableWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.nptWindow.exec()
+
 	# remove a partial or full panel with no genotypes, if it exists
 	def removeEmptyPanel(self):
 		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
