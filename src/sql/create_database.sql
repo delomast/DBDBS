@@ -18,6 +18,15 @@ CREATE TABLE intDBpheno_overview (
 	table_description TEXT
 );
 
+-- create a phenotype variable information table
+CREATE TABLE intDBpheno_variableInfo (
+	table_name VARCHAR(64) NOT NULL,
+	pheno_name VARCHAR (64) NOT NULL,
+	min_value DOUBLE,
+	max_value DOUBLE,
+	FOREIGN KEY (table_name) REFERENCES intDBpheno_overview(table_name)
+);
+
 -- create genetic group information table
 CREATE TABLE intDBgen_group_overview (
 	grouping_name VARCHAR(64) UNIQUE NOT NULL,

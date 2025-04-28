@@ -2,9 +2,11 @@
 import mysql.connector as connector
 from PyQt6.QtWidgets import (
 	QPushButton, QLabel, QLineEdit, QComboBox, QRadioButton,
-	 QGridLayout, 
-	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
+	QCheckBox, QWidget, QSizeGrip, QSplitter,
+	QGridLayout, QScrollArea, QSizePolicy,
+	QFileDialog, QVBoxLayout, QDoubleSpinBox, QTextEdit, QDialog
 )
+from PyQt6.QtCore import Qt
 from .utils import (dlgError, identifier_syntax_check,
 	getConnection
 )
@@ -16,8 +18,10 @@ class newPhenoTableWindow(QDialog):
 		self.setWindowTitle("Make new phenotype table")
 		self.cnx = cnx
 		self.userInfo = userInfo
-
-		self.setMinimumSize(200, 200) # trying to avoid :"Unable to set geometry" warning
+		
+		self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
+		self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+		self.setMinimumSize(400, 200) # trying to avoid :"Unable to set geometry" warning
 
 		# panel type, name, etc (info from user)
 		# individual or family level data
@@ -53,10 +57,17 @@ class newPhenoTableWindow(QDialog):
 		self.gridLayout.addWidget(QLabel("Table description"), 3, 0)
 		self.gridLayout.addWidget(self.tableDescBox, 3, 1)
 
-		# add main selection items as top layout in main layout
+		# add to widget and splitter - splitter allows top and bottom split to be resized
+		self.gridLayoutWidget = QWidget()
+		self.gridLayoutWidget.setLayout(self.gridLayout)
+
 		self.mainLayout = QVBoxLayout()
-		self.mainLayout.addLayout(self.gridLayout)
+		self.mainSplitter = QSplitter()
+		self.mainSplitter.setOrientation(Qt.Orientation.Vertical)
+		self.mainSplitter.addWidget(self.gridLayoutWidget)
+		self.mainLayout.addWidget(self.mainSplitter)
 		self.setLayout(self.mainLayout)
+
 
 	def onClickDefFile(self):
 		tempFile = QFileDialog.getOpenFileName(self, "Select table definition file", "/home/")[0]
@@ -86,29 +97,74 @@ class newPhenoTableWindow(QDialog):
 		# delete old widgets if present
 		if hasattr(self, "columnType_comboboxes"):
 			for i in range(0, len(self.columnType_comboboxes)):
-				self.columnType_comboboxes[i].setParent(None)
-				self.columnType_labels[i].setParent(None)
+				self.columnType_comboboxes[i].deleteLater()
+				self.columnType_labels[i].deleteLater()
+				self.columnMin[i].deleteLater()
+				self.columnMax[i].deleteLater()
+				self.useMinMax[i].deleteLater()
+				self.columnDescription[i].deleteLater()
 
-		# make combobox selection and label for each column
+		self.columnType_subLayout = QGridLayout()
+		# make combobox selection, label, min/max value, and
+		# description for each column
 		self.columnType_comboboxes = []
 		self.columnType_labels = []
-		self.columnType_subLayout = QGridLayout()
+		self.columnMin = []
+		self.columnMax = []
+		self.useMinMax = []
+		self.columnDescription = []
+		self.columnType_subLayout.addWidget(QLabel("Column", alignment=Qt.AlignmentFlag.AlignRight), 0, 0)
+		self.columnType_subLayout.addWidget(QLabel("Type", alignment=Qt.AlignmentFlag.AlignRight), 0, 1)
+		self.columnType_subLayout.addWidget(QLabel("Min", alignment=Qt.AlignmentFlag.AlignRight), 0, 2)
+		self.columnType_subLayout.addWidget(QLabel("Max", alignment=Qt.AlignmentFlag.AlignRight), 0, 3)
+		self.columnType_subLayout.addWidget(QLabel("Use min/max", alignment=Qt.AlignmentFlag.AlignRight), 0, 4)
+		self.columnType_subLayout.addWidget(QLabel("Description", alignment=Qt.AlignmentFlag.AlignHCenter), 0, 5)
 		for i in range(0, len(h)):
 			self.columnType_comboboxes += [QComboBox()]
 			self.columnType_comboboxes[i].addItems(self.getValidColumnTypes())
 			self.columnType_labels += [QLabel(h[i])]
+			self.columnMin += [QDoubleSpinBox()]
+			self.columnMin[i].setDecimals(4)
+			self.columnMin[i].setRange(-1000000, 1000000)
+			self.columnMax += [QDoubleSpinBox()]
+			self.columnMax[i].setDecimals(4)
+			self.columnMax[i].setRange(-1000000, 1000000)
+			self.useMinMax += [QCheckBox()]
+			self.columnDescription += [QTextEdit()]
+			self.columnDescription[i].setAcceptRichText(False)
+			self.columnDescription[i].setMinimumWidth(200)
+			
 			# add to layout
-			self.columnType_subLayout.addWidget(self.columnType_labels[i], i, 0)
-			self.columnType_subLayout.addWidget(self.columnType_comboboxes[i], i, 1)
-		# add sublayout to main layout
-		self.mainLayout.addLayout(self.columnType_subLayout)
-
+			self.columnType_subLayout.addWidget(self.columnType_labels[i], i+1, 0)
+			self.columnType_subLayout.addWidget(self.columnType_comboboxes[i], i+1, 1)
+			self.columnType_subLayout.addWidget(self.columnMin[i], i+1, 2)
+			self.columnType_subLayout.addWidget(self.columnMax[i], i+1, 3)
+			self.columnType_subLayout.addWidget(self.useMinMax[i], i+1, 4)
+			self.columnType_subLayout.addWidget(self.columnDescription[i], i+1, 5)
+		
+		# add scroll area
+		self.scrollArea = QScrollArea()
+		self.scrollArea.setWidgetResizable(True) # allow widget within the scroll area to resize automatically
+		self.scrollWidget = QWidget()
+		# add to layout
+		self.scrollWidget.setLayout(self.columnType_subLayout)
+		self.scrollArea.setWidget(self.scrollWidget)
+		if self.mainSplitter.count() == 1:
+			self.mainSplitter.addWidget(self.scrollArea)
+		else:
+			self.mainSplitter.replaceWidget(1, self.scrollArea)
+		
 		# create submit button
 		# only create after a file is selected, don't create more than once
 		if not hasattr(self, "submitPanel_button"):
-			self.submitPanel_button = QPushButton("Add new panel")
+			self.submitPanel_button = QPushButton("Add new table")
 			self.submitPanel_button.clicked.connect(self.onSubmit)
 			self.gridLayout.addWidget(self.submitPanel_button, 4, 1)
+		
+		# make window bigger if not mazimized
+		if not self.isMaximized():
+			self.setWindowState(Qt.WindowState.WindowMaximized)
+			# self.resize(600, 600)
 
 	def onTypeChange(self):
 		if hasattr(self, "columnType_comboboxes"):
@@ -121,7 +177,7 @@ class newPhenoTableWindow(QDialog):
 			validTypes = ["ind_name"]
 		else:
 			validTypes = ["sire_name", "dam_name"]
-		validTypes += ["DATE", "DATETIME", "INTEGER", "DOUBLE", "VARCHAR_255", "VARCHAR_65535", "TEXT"]
+		validTypes += ["u_DATE", "u_DATETIME", "INTEGER", "DOUBLE", "VARCHAR_255", "VARCHAR_65535", "TEXT", "DATE", "DATETIME"]
 		return(validTypes)
 	
 	def onSubmit(self):
@@ -131,8 +187,8 @@ class newPhenoTableWindow(QDialog):
 			return
 		colNames = [x.text() for x in self.columnType_labels] # user provided column names
 		colItems = [x.currentText() for x in self.columnType_comboboxes] # user selected data type
-		if (colItems.count("DATE") + colItems.count("DATETIME")) != 1:
-			dlgError(self, "(Only) One column must be either \"DATE\" or \"DATETIME\"")
+		if (colItems.count("u_DATE") + colItems.count("u_DATETIME")) != 1:
+			dlgError(self, "(Only) One column must be either \"u_DATE\" or \"u_DATETIME\"")
 			return
 		if self.indivRadio.isChecked():
 			if colItems.count("ind_name") != 1:
@@ -160,10 +216,54 @@ class newPhenoTableWindow(QDialog):
 				return
 				
 		# add panel to database
+		with self.cnx.cursor() as curs:
+			## add details to intDBpheno_overview
+			sqlState = "INSERT INTO intDBpheno_overview (table_name, time_obs_col, number_of_phenos, table_description,"
+			if "u_DATE" in colItems:
+				timeColName = colNames[colItems.index("u_DATE")]
+			else:
+				timeColName = colNames[colItems.index("u_DATETIME")]
 
-		## add details to intDBpheno_overview
+			sqlValues = [self.tableNameBox.text(), timeColName, len(colNames) - 2, self.tableDescBox.toPlainText()]
+			if self.indivRadio.isChecked():
+				sqlState += "ind_name_col) VALUES ('%s','%s',%s,'%s','%s')"
+				sqlValues += [colNames[colItems.index("ind_name")]]
+			else:
+				sqlState += "sire_name_col, dam_name_col) VALUES ('%s','%s',%s,'%s','%s','%s')"
+				sqlValues += [colNames[colItems.index("sire_name")], colNames[colItems.index("dam_name")]]
+				sqlValues[2] -= 1 # decrease number of phenotypes to account for 2 family ID (sire and dam) columns
+			sqlValues = tuple(sqlValues)
+			## add details on variables
+			# allowable range, description
 
-		## create table
+			# TODO add phenotype description to INSERT statement self.columnDescription
+			
+			sqlState2 = "INSERT INTO intDBpheno_variableInfo (table_name, pheno_name, min_value, max_value) VALUES"
+			for i in range(0, len(colItems)):
+				if colItems[i] in ("ind_name", "sire_name", "dam_name", "u_DATE", "u_DATETIME"):
+					continue
+				# use min and max values for input checking
+				if self.useMinMax[i].isChecked():
+					if colItems[i] not in ("INTEGER", "DOUBLE"):
+						dlgError("Cannot use min/max for %s because it is not either INTEGER or DOUBLE." % colNames[i])
+						return
+					if self.columnMin[i].value() > self.columnMax[i].value():
+						dlgError("Min must be less than Max for %s." % colNames[i])
+						return
+					sqlState2 += "('%s', '%s', %s, %s)," % (self.tableNameBox.text(), colNames[i], self.columnMin[i].value(), self.columnMax[i].value())
+				else:
+					sqlState2 += "('%s', '%s', NULL, NULL)," % (self.tableNameBox.text(), colNames[i])
+			## execute statements
+			curs.execute(sqlState % sqlValues) # executing later in case input error found during min/max
+			if not sqlState2.endswith("VALUES"):
+				curs.execute(sqlState2.rstrip(","))
+
+			## 
+
+
+			## create table
+
+		## commit
 
 
 
