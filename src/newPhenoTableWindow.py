@@ -177,7 +177,7 @@ class newPhenoTableWindow(QDialog):
 			validTypes = ["ind_name"]
 		else:
 			validTypes = ["sire_name", "dam_name"]
-		validTypes += ["u_DATE", "u_DATETIME", "INTEGER", "DOUBLE", "VARCHAR_255", "VARCHAR_65535", "TEXT", "DATE", "DATETIME"]
+		validTypes += ["u_DATE", "u_DATETIME", "INTEGER", "DOUBLE", "VARCHAR(255)", "VARCHAR(65535)", "TEXT", "DATE", "DATETIME"]
 		return(validTypes)
 	
 	def onSubmit(self):
@@ -233,15 +233,13 @@ class newPhenoTableWindow(QDialog):
 				sqlValues += [colNames[colItems.index("sire_name")], colNames[colItems.index("dam_name")]]
 				sqlValues[2] -= 1 # decrease number of phenotypes to account for 2 family ID (sire and dam) columns
 			sqlValues = tuple(sqlValues)
-			## add details on variables
+			# add details on variables
 			# allowable range, description
-
-			# TODO add phenotype description to INSERT statement self.columnDescription
-			
-			sqlState2 = "INSERT INTO intDBpheno_variableInfo (table_name, pheno_name, min_value, max_value) VALUES"
+			sqlState2 = "INSERT INTO intDBpheno_variableInfo (table_name, pheno_name, pheno_description, min_value, max_value) VALUES"
 			for i in range(0, len(colItems)):
-				if colItems[i] in ("ind_name", "sire_name", "dam_name", "u_DATE", "u_DATETIME"):
-					continue
+				# saving info for all columns in case user wants to save a description of required columns
+				# if colItems[i] in ("ind_name", "sire_name", "dam_name", "u_DATE", "u_DATETIME"):
+				# 	continue
 				# use min and max values for input checking
 				if self.useMinMax[i].isChecked():
 					if colItems[i] not in ("INTEGER", "DOUBLE"):
@@ -250,182 +248,41 @@ class newPhenoTableWindow(QDialog):
 					if self.columnMin[i].value() > self.columnMax[i].value():
 						dlgError("Min must be less than Max for %s." % colNames[i])
 						return
-					sqlState2 += "('%s', '%s', %s, %s)," % (self.tableNameBox.text(), colNames[i], self.columnMin[i].value(), self.columnMax[i].value())
+					sqlState2 += "('%s', '%s', '%s', %s, %s)," % (self.tableNameBox.text(), colNames[i], self.columnDescription[i].toPlainText(), self.columnMin[i].value(), self.columnMax[i].value())
 				else:
-					sqlState2 += "('%s', '%s', NULL, NULL)," % (self.tableNameBox.text(), colNames[i])
-			## execute statements
+					sqlState2 += "('%s', '%s', '%s', NULL, NULL)," % (self.tableNameBox.text(), colNames[i], self.columnDescription[i].toPlainText())
+			# execute statements
 			curs.execute(sqlState % sqlValues) # executing later in case input error found during min/max
 			if not sqlState2.endswith("VALUES"):
 				curs.execute(sqlState2.rstrip(","))
+			del sqlState2 # defensive
 
-			## 
-
-
-			## create table
+			# create table
+			sqlState = "CREATE TABLE `%s` (" % self.tableNameBox.text()
+			# add date(time) column
+			if "u_DATE" in colItems:
+				sqlState += "intDBu_DTobs DATE NOT NULL,"
+			else:
+				sqlState += "intDBu_DTobs DATETIME NOT NULL,"
+			# add user defined phenotypes
+			for i in range(0, len(colItems)):
+				if colItems[i] in ("ind_name", "sire_name", "dam_name", "u_DATE", "u_DATETIME"):
+					continue
+				sqlState += " `%s` %s," % (colNames[i], colItems[i])
+			# add either individual or dam and sire ids and contstraints
+			if self.indivRadio.isChecked():
+				sqlState += " intDBind_id INTEGER UNSIGNED,"
+				sqlState += " PRIMARY KEY (intDBind_id, intDBu_DTobs),"
+				sqlState += " FOREIGN KEY (intDBind_id) REFERENCES intDBpedigree(ind_id))"
+			else:
+				sqlState += " intDBsire INTEGER UNSIGNED, intDBdam INTEGER UNSIGNED,"
+				sqlState += " PRIMARY KEY (intDBsire, intDBdam, intDBu_DTobs),"
+				sqlState += " FOREIGN KEY (intDBsire) REFERENCES intDBpedigree(ind_id),"
+				sqlState += " FOREIGN KEY (intDBdam) REFERENCES intDBpedigree(ind_id))"
+			# execute
+			curs.execute(sqlState)
 
 		## commit
-
-
-
-
-
-		maxLen = deque(maxLen) # for efficient pop from left
-		# build sql statement and value insert string
-		sqlState = "CREATE TABLE `%s` (intDBlocus_id INTEGER UNSIGNED PRIMARY KEY AUTO_INCREMENT," % self.panelNameBox.text()
-		insertString = "("
-		for i in range(0, len(colTypes)):
-			if i > 0:
-				sqlState += ", "
-				insertString += ","
-
-			if colTypes[i] == "Locus name":
-				sqlState += "intDBlocus_name VARCHAR(%s) UNIQUE NOT NULL" % maxLen.popleft()
-				colNames[i] = "intDBlocus_name" # recode column names
-			elif colTypes[i] == "Ref allele":
-				if maxLen[0] == 1: # save a bit of memory if all are one character long
-					tempVarType = "CHAR"
-				else:
-					tempVarType = "VARCHAR"
-				sqlState += "intDBref_allele %s(%s) NOT NULL" % (tempVarType, maxLen.popleft())
-				colNames[i] = "intDBref_allele"
-			elif colTypes[i] == "Alt allele":
-				if maxLen[0] == 1: # save a bit of memory if all are one character long
-					tempVarType = "CHAR"
-				else:
-					tempVarType = "VARCHAR"
-				sqlState += "intDBalt_allele %s(%s) NOT NULL" % (tempVarType, maxLen.popleft())
-				colNames[i] = "intDBalt_allele"
-			elif colTypes[i] == "Alleles":
-				sqlState += "intDBalleles VARCHAR(%s) NOT NULL" % maxLen.popleft()
-				colNames[i] = "intDBalleles"
-			elif colTypes[i] == "VARCHAR":
-				sqlState += "`%s` VARCHAR(%s) NOT NULL" % (colNames[i], maxLen.popleft())
-			else:
-				sqlState += "`%s` %s NOT NULL" % (colNames[i], colTypes[i])
-
-			if colTypes[i] in ("INTEGER", "DOUBLE"):
-				insertString += "%s" # no quotes for numbers
-			else:
-				insertString += "'%s'" # single quotes for string literals
-		sqlState += ")"
-		insertString += "),"
-		
-		# execute on MySQL server
-		with self.cnx.cursor() as curs:
-			# create panel information table
-			curs.execute(sqlState)
-			# load data - to best deal with new lines and LOCAL issues, not using LOAD DATA
-			with open(self.panelDefFile, "r") as f:
-				line = f.readline() # skip header
-				line = f.readline()
-				colNameString = "(" + ",".join(["`" + x + "`" for x in colNames]) + ")"
-				sqlState = "INSERT INTO `%s` %s VALUES " % (self.panelNameBox.text(), colNameString)
-				rowCounter = 0
-				while line:
-					line = line.rstrip("\n").split("\t")
-					sqlState += insertString % tuple(line)
-					rowCounter += 1
-					if rowCounter == self.batchSizeSpinnerBox.value():
-						# strip last comma and execute insert statement
-						curs.execute(sqlState.rstrip(","))
-						sqlState = "INSERT INTO `%s` %s VALUES " % (self.panelNameBox.text(), colNameString)
-						rowCounter = 0
-					line = f.readline()
-				if rowCounter > 0:
-					# strip last comma and execute insert statement
-					curs.execute(sqlState.rstrip(","))
-			del sqlState
-
-			# add panel to overall genotype panel information table
-			# panel name, number of loci, ploidy, panel description, panel type
-			curs.execute("INSERT INTO intDBgeno_overview VALUES (%s, %s, %s, %s, %s)", 
-				(self.panelNameBox.text(), locusCount, self.ploidySpinnerBox.value(), self.panelDescBox.toPlainText(), self.panelTypeBox.currentText()))
-
-			# create genotype table
-			sqlState = "CREATE TABLE `%s` (ind_id INTEGER UNSIGNED PRIMARY KEY, genotypes MEDIUMBLOB NOT NULL, FOREIGN KEY (ind_id) REFERENCES intDBpedigree(ind_id))" % ("intDB" + self.panelNameBox.text() + "_gt")
-			curs.execute(sqlState)
-			
-			cnx2 = getConnection(self.userInfo)
-			# create lookup table
-			if self.panelTypeBox.currentText() == "Multiallelic":
-				# define table
-				sqlState = "CREATE TABLE `%s` (locus_id INTEGER UNSIGNED NOT NULL, genotype_id TINYINT UNSIGNED NOT NULL," % ("intDB" + self.panelNameBox.text() + "_lt")
-				alleleCols = []
-				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					sqlState += " allele_%s VARCHAR(65535) NOT NULL," % i
-					alleleCols += ["allele_%s" % i]
-				sqlState += " FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), PRIMARY KEY (locus_id, genotype_id), INDEX (%s))" % (self.panelNameBox.text(), ",".join(alleleCols))
-				del alleleCols # defensive
-				curs.execute(sqlState)
-				# populate with user supplied values, if any
-				if "intDBalleles" in colNames:
-					# get cursor for loci/alleles ordered by locus id
-					laCursor = getCursLociAlleles(cnx2, self.panelNameBox.text())
-					colNameString = "(" + ",".join(["locus_id", "genotype_id"] + ["allele_%s" % i for i in range(1, self.ploidySpinnerBox.value() + 1)]) + ")"
-					for loc in laCursor: # (id, name, alleles)
-						# split alleles
-						alleles = loc[2].split(",")
-						alleles = [x for x in alleles if len(x) > 0] # remove any empty strings (can happen when user uploads with no value)
-						if len(alleles) < 1: # skip if no alleles given
-							continue
-						# check that number of genotypes can be stored
-						if numGenotypes(len(alleles), self.ploidySpinnerBox.value()) > 255:
-							dlgError(parent=self, message="%s alleles for locus %s is too many to be stored in a Multiallelic panel." % (len(alleles), loc[1]))
-							removePartialPanel(self.userInfo, self.panelNameBox.text())
-							return
-						alleles.sort() # sort to make comparison to user input data easy (have to sort it on input as well)
-						geno_id = 1 # start at 1 b/c 0 is missing genotype
-						sqlState = "INSERT INTO `%s` %s VALUES " % ("intDB" + self.panelNameBox.text() + "_lt", colNameString)
-						for geno in combinations_with_replacement(alleles, self.ploidySpinnerBox.value()):
-							genoSort = list(geno) 
-							genoSort.sort() # should already be sorted, but double checking here just to make sure, and in case combin function changes
-							# add genotype to lookup table
-							sqlState += "(%s,%s,%s)," % (loc[0], geno_id, ",".join(["'%s'" % x for x in genoSort]))
-							geno_id += 1
-						# execute each locus at a time
-						curs.execute(sqlState.rstrip(","))
-					laCursor.close()
-
-			elif self.panelTypeBox.currentText() == "Hyperallelic":
-				# define table
-				sqlState = """
-				CREATE TABLE `%s` (
-				locus_id INTEGER UNSIGNED NOT NULL, 
-				allele_id TINYINT UNSIGNED NOT NULL, 
-				allele VARCHAR(65535) NOT NULL,
-				FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), 
-				PRIMARY KEY (locus_id, allele_id),
-				INDEX (allele))
-				""" % ("intDB" + self.panelNameBox.text() + "_lt", self.panelNameBox.text())
-				curs.execute(sqlState)
-				# populate with user supplied values, if any
-				if "intDBalleles" in colNames:
-					# get cursor for loci/alleles ordered by locus id
-					laCursor = getCursLociAlleles(cnx2, self.panelNameBox.text())
-					colNameString = "(" + ",".join(["locus_id", "allele_id", "allele"]) + ")"
-					for loc in laCursor: # (locus id, allele id, allele character string)
-						# split alleles
-						alleles = loc[2].split(",")
-						alleles = [x for x in alleles if len(x) > 0] # remove any empty strings (can happen when user uploads with no value)
-						if len(alleles) < 1: # skip if no alleles given
-							continue
-						if len(alleles) > 255:
-							dlgError(parent=self, message="%s alleles for locus %s is too many to be stored in a Hyperallelic panel." % (len(alleles), loc[1]))
-							removePartialPanel(self.userInfo, self.panelNameBox.text())
-							return
-						allele_id = 1 # start at 1 b/c 0 is missing genotype
-						sqlState = "INSERT INTO `%s` %s VALUES " % ("intDB" + self.panelNameBox.text() + "_lt", colNameString)
-						for a in alleles:
-							# add allele to lookup table
-							sqlState += "(%s,%s,'%s')," % (loc[0], allele_id, a)
-							allele_id += 1
-						# execute each locus at a time
-						curs.execute(sqlState.rstrip(","))
-					laCursor.close()
-			
-			cnx2.close() # close second connection
-		
-		# commit changes
 		self.cnx.commit()
 
 		# close window

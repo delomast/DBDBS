@@ -1,6 +1,6 @@
 -- create genotype panel information table
 CREATE TABLE intDBgeno_overview (
-	panel_name VARCHAR(64) UNIQUE NOT NULL, 
+	panel_name VARCHAR(64) PRIMARY KEY, 
 	number_of_loci INTEGER UNSIGNED NOT NULL,
 	ploidy INTEGER UNSIGNED NOT NULL,
 	panel_description TEXT,
@@ -9,7 +9,7 @@ CREATE TABLE intDBgeno_overview (
 
 -- create phenotype table information table
 CREATE TABLE intDBpheno_overview (
-	table_name VARCHAR(64) UNIQUE NOT NULL,
+	table_name VARCHAR(64) PRIMARY KEY,
 	ind_name_col VARCHAR(64),
 	sire_name_col VARCHAR(64),
 	dam_name_col VARCHAR(64),
@@ -22,6 +22,7 @@ CREATE TABLE intDBpheno_overview (
 CREATE TABLE intDBpheno_variableInfo (
 	table_name VARCHAR(64) NOT NULL,
 	pheno_name VARCHAR (64) NOT NULL,
+	pheno_description TEXT,
 	min_value DOUBLE,
 	max_value DOUBLE,
 	FOREIGN KEY (table_name) REFERENCES intDBpheno_overview(table_name)
