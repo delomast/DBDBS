@@ -2,7 +2,7 @@
 import mysql.connector as connector
 from PyQt6.QtWidgets import (
 	QPushButton, QLabel, QLineEdit, QComboBox, 
-	 QGridLayout, 
+	 QGridLayout, QMessageBox,
 	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
 )
 from .utils import (dlgError, identifier_syntax_check, alleleSyntaxCheck,
@@ -370,6 +370,11 @@ class newPanelWindow(QDialog):
 		
 		# commit changes
 		self.cnx.commit()
+
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Genotype panel")
+		messageBox.setText("Genotype panel successfully added")
+		messageBox.exec()
 
 		# close window
 		self.close()

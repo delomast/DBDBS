@@ -2,14 +2,12 @@
 import mysql.connector as connector
 from PyQt6.QtWidgets import (
 	QPushButton, QLabel, QLineEdit, QComboBox, QRadioButton,
-	QCheckBox, QWidget, QSizeGrip, QSplitter,
-	QGridLayout, QScrollArea, QSizePolicy,
+	QCheckBox, QWidget, QSplitter,
+	QGridLayout, QScrollArea, QMessageBox,
 	QFileDialog, QVBoxLayout, QDoubleSpinBox, QTextEdit, QDialog
 )
 from PyQt6.QtCore import Qt
-from .utils import (dlgError, identifier_syntax_check,
-	getConnection
-)
+from .utils import (dlgError, identifier_syntax_check)
 
 # using QDialog class and exec to block other windows - only one active window at a time
 class newPhenoTableWindow(QDialog):
@@ -284,6 +282,11 @@ class newPhenoTableWindow(QDialog):
 
 		## commit
 		self.cnx.commit()
+
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Phenotype table")
+		messageBox.setText("Phenotype table successfully added")
+		messageBox.exec()
 
 		# close window
 		self.close()
