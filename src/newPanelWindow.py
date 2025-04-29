@@ -133,7 +133,7 @@ class newPanelWindow(QDialog):
 		with self.cnx.cursor() as curs:
 			curs.execute("SHOW TABLES")
 			for x in curs:
-				if x[0] == self.panelNameBox.text():
+				if x[0].lower() == self.panelNameBox.text().lower():
 					self.cnx.consume_results()
 					dlgError(parent=self, message="A table with that name already exists, please pick a different panel name")
 					return
