@@ -68,13 +68,13 @@ def saveInfo(userInfo : dict):
 				curs_db.close()
 	gui_db.close()
 
-# check that does not begin with $ or end with space, len <= 54, no newlines, no backtick `, no backslash \
+# check that does not begin with $ or end with space, len <= 50, no newlines, no backtick `, no backslash \
 # does not start with "IntDB" (case insensitive)
 # this is a partial check for valid syntax for quoted identifiers
 # using one length for simplicity even though some (e.g., db name) could be longer
 # returns True for good syntax, False for bad
 def identifier_syntax_check(ident :  str) -> bool:
-	if not re.fullmatch("^.{1,54}$", ident) or re.search("^\\$| $|^IntDB|`", ident, flags=re.IGNORECASE):
+	if not re.fullmatch("^.{1,50}$", ident) or re.search("^\\$| $|^IntDB|`", ident, flags=re.IGNORECASE):
 		return False
 	if "\\" in ident:
 		return False
@@ -209,6 +209,7 @@ def indsInTable(cnx : connector, inds : list, tableName : str):
 		inTable = [x[0] for x in curs]
 	outTable = [x for x in inds if x not in inTable]
 	return (tuple(inTable), tuple(outTable))
+
 
 # return a list of individual names from an import file
 # and a boolean of whether there are duplicate ind names

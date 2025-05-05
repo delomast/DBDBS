@@ -295,7 +295,7 @@ class newPanelWindow(QDialog):
 				sqlState = "CREATE TABLE `%s` (locus_id INTEGER UNSIGNED NOT NULL, genotype_id TINYINT UNSIGNED NOT NULL," % ("intDB" + self.panelNameBox.text() + "_lt")
 				alleleCols = []
 				for i in range(1, self.ploidySpinnerBox.value() + 1):
-					sqlState += " allele_%s VARCHAR(65535) NOT NULL," % i
+					sqlState += " allele_%s VARCHAR(1000) NOT NULL," % i
 					alleleCols += ["allele_%s" % i]
 				sqlState += " FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), PRIMARY KEY (locus_id, genotype_id), INDEX (%s))" % (self.panelNameBox.text(), ",".join(alleleCols))
 				del alleleCols # defensive
@@ -335,7 +335,7 @@ class newPanelWindow(QDialog):
 				CREATE TABLE `%s` (
 				locus_id INTEGER UNSIGNED NOT NULL, 
 				allele_id TINYINT UNSIGNED NOT NULL, 
-				allele VARCHAR(65535) NOT NULL,
+				allele VARCHAR(1000) NOT NULL,
 				FOREIGN KEY (locus_id) REFERENCES %s (intDBlocus_id), 
 				PRIMARY KEY (locus_id, allele_id),
 				INDEX (allele))

@@ -19,6 +19,7 @@ from .importGenoWindow import importGenoWindow
 from .exportGenoWindow import exportGenoWindow
 from .pedWindow import pedWindow
 from .newPhenoTableWindow import newPhenoTableWindow
+from .importPhenoWindow import importPhenoWindow
 
 
 class interactWindow(QMainWindow):
@@ -46,12 +47,9 @@ class interactWindow(QMainWindow):
 		removeEmptyPanel_button = QAction("Remove an empty genotype panel", self)
 		removeEmptyPanel_button.setStatusTip("This can remove a genotype panel that does not have any genotypes in it")
 		removeEmptyPanel_button.triggered.connect(self.removeEmptyPanel)
-		# TODO add a new individual phenotype table
 		makePhenoTable_button = QAction("Add a new phenotype panel", self)
 		makePhenoTable_button.setStatusTip("This creates a new phenotype panel in the current database")
 		makePhenoTable_button.triggered.connect(self.makePhenoTable)
-
-		# TODO add a new family phenotype table
 
 		# TODO remove an empty phenotype table
 		
@@ -66,8 +64,11 @@ class interactWindow(QMainWindow):
 		exportGenoButton.clicked.connect(self.exportGeno)
 		importExportPedButton = QPushButton("Import or export pedigree")
 		importExportPedButton.clicked.connect(self.importExportPed)
+		importPhenoButton = QPushButton("Import phenotype data")
+		importPhenoButton.clicked.connect(self.importPheno)
 
 		# TODO import individual phenoptypes
+
 		# TODO export individual phenoptypes
 		# TODO import family phenoptypes
 		# TODO export family phenoptypes
@@ -100,8 +101,8 @@ class interactWindow(QMainWindow):
 		layout.addWidget(importGenoButton, 2, 0)
 		layout.addWidget(exportGenoButton, 3, 0)
 		layout.addWidget(importExportPedButton, 4, 0)
+		layout.addWidget(importPhenoButton, 5, 0)
 		# TODO: add buttons for phenotype import and export functions here
-		# TODO: add define new tables here? or in 
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
@@ -261,3 +262,12 @@ class interactWindow(QMainWindow):
 			return
 		self.epWindow = pedWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.epWindow.exec()
+	
+	# open import phenotype data window
+	def importPheno(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		self.iphenWindow = importPhenoWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.iphenWindow.exec()
+
