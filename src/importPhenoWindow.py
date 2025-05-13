@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 	 QFileDialog, QVBoxLayout, QSpinBox, QDialog,
 	 QRadioButton, QHBoxLayout, QMessageBox
 )
+import re
 from .utils import (dlgError, 
 	indsInPedigree,
 	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict,
@@ -49,10 +50,10 @@ class importPhenoWindow(QDialog):
 		self.maxValue = []
 
 		# check for new individuals button
-		self.checkIndsButton = QPushButton("Check if individuals are in the database")
+		self.checkIndsButton = QPushButton("Check if individuals are in the pedigree")
 		self.checkIndsButton.clicked.connect(self.checkNewInds)
 		# check for new observations button
-		self.checkObsButton = QPushButton("Check if observations are in the database")
+		self.checkObsButton = QPushButton("Check if observations are in the table")
 		self.checkObsButton.clicked.connect(self.checkNewObservations)
 
 
@@ -61,9 +62,9 @@ class importPhenoWindow(QDialog):
 		self.checkColsButton.clicked.connect(self.checkColNames)
 
 		# add new phenotypes or update existing individuals on import radio buttons
-		self.addNewRadio = QRadioButton("Add new phenotypes", self)
+		self.addNewRadio = QRadioButton("Add new observations", self)
 		self.addNewRadio.setChecked(True) # default is add new individuals
-		self.updateRadio = QRadioButton("Update existing phenotypes", self)
+		self.updateRadio = QRadioButton("Update existing observations", self)
 
 		# start import button
 		self.importButton = QPushButton("Import phenotypes")
@@ -95,7 +96,8 @@ class importPhenoWindow(QDialog):
 		self.gridLayout2 = QGridLayout()
 		self.gridLayout2.addWidget(self.checkColsButton, 0, 0)
 		self.gridLayout2.addWidget(self.checkIndsButton, 1, 0)
-		self.gridLayout2.addWidget(self.importButton, 2, 0)
+		self.gridLayout2.addWidget(self.checkObsButton, 2, 0)
+		self.gridLayout2.addWidget(self.importButton, 3, 0)
 
 		# add grid layout as top layout in main layout
 		self.mainLayout = QVBoxLayout()
@@ -147,11 +149,34 @@ class importPhenoWindow(QDialog):
 			return
 		self.inputFile.setText(tempFile)
 	
-	# check if individuals are in the pedigee
-	# TODO check this function
-	def checkNewInds(self):
+	# check that file has been selected and has required columns
+	# if an error is found, issues error message and returns False
+	# if no error is found, returns True
+	def checkFile(self):
 		if self.inputFile.text() == "":
 			dlgError(parent=self, message="No input file is selected")
+			return False
+		# read header to check for presence of column names
+		with open(self.inputFile.text(), "r") as f:
+			h = f.readline().rstrip("\n").split("\t")
+			if self.ind_col is None:
+				# family data, dam and sire columns should be present
+				if self.sire_col not in h or self.dam_col not in h:
+					dlgError(parent=self, message="Missing the dam and/or sire column(s)")
+					return False
+			else:
+				if self.ind_col not in h:
+					dlgError(parent=self, message="Missing the individual name column(s)")
+					return False
+			if self.dt_col not in h:
+					dlgError(parent=self, message="Missing the data(time) of observation column")
+					return False
+		return True
+
+	
+	# check if individuals are in the pedigee
+	def checkNewInds(self, s = None, interact = True):
+		if not self.checkFile():
 			return
 		# read header to find out which column(s) have individual names
 		with open(self.inputFile.text(), "r") as f:
@@ -171,6 +196,9 @@ class importPhenoWindow(QDialog):
 
 			# check if inds are in pedigree
 			pedStatus = indsInPedigree(self.cnx, inds)
+
+			if not interact:
+				return pedStatus
 		
 			# show summary message and ask whether to write a report
 			writeReportBox = QMessageBox(parent=self)
@@ -194,286 +222,436 @@ class importPhenoWindow(QDialog):
 
 	# check if observations (individual and data/time combinations) are in the phenotype table
 	# and check for duplicate observations
-	def checkNewObservations(self):
-		# TODO
-
-	# check column names
-	def checkColNames(self, s = None, interact = True):
-		if self.inputFile.text() == "":
-			dlgError(parent=self, message="No input file is selected")
+	# s is to catch signal from button
+	def checkNewObservations(self, s = None, interact = True):
+		if not self.checkFile():
 			return
-		# get locus names from import file
-		if self.fileFormat.currentText() == "long":
-			h = set()
-			with open(self.inputFile.text(), "r") as fileIn:
-				header = fileIn.readline()
-				for line in fileIn:
-					h.add(line.rstrip("\n").split("\t")[1])
-		else:
-			genoIter = self.getGenoIter()
-			h = genoIter.loci
-			del genoIter
-			oldLen = len(h)
-			h = set(h)
-			if len(h) < oldLen:
+		with open(self.inputFile.text(), "r") as f:
+			# identify column(s) with individual names and date/time
+			h = f.readline().rstrip("\n").split("\t")
+			if self.ind_col is None:
+				# position of columns to pull names from
+				pos = [h.index(self.sire_col), h.index(self.dam_col), h.index(self.dt_col)]
+			else:
+				pos = [h.index(self.ind_col), h.index(self.dt_col)]
+			# make set of all observations in the input file
+			# with each observation a tuple of (indName, datetime) or (sire, dam, datetime)
+			obs = set()
+			obsCount = 0
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				obsCount += 1
+				oneObs = tuple([sep[x] for x in pos])
+				obs.add(oneObs)
+			if len(obs) < obsCount:
 				if interact:
-					dlgError(parent=self, message="One or more loci are repeated in the file")
+					dlgError(parent=self, message="Not all observations are unique")
 					return
 				else:
-					return (2,None)
-		if len(h) < 1:
-			if interact:
-				dlgError(parent=self, message="No loci in the file")
-				return
-			else:
-				return (3,None)
+					return 3 # duplicate observations in the input - error
+			with self.cnx.cursor() as curs:
+				# get set of observations that are already in the table
+				if self.ind_col is None:
+					sqlState = "SELECT intDBsire, intDBdam, intDBu_DTobs FROM `%s` WHERE (intDBsire, intDBdam, intDBu_DTobs) IN (" % self.tableComboBox.currentText()
+				else:
+					sqlState = "SELECT intDBind_id, intDBu_DTobs FROM `%s` WHERE (intDBind_id, intDBu_DTobs) IN (" % self.tableComboBox.currentText()
+				
+				# convert ind names to ids then assemble for sql lookup
+				if self.ind_col is None:
+					inds = set([x[0] for x in obs]).union(set([x[1] for x in obs]))
+				else:
+					inds = set([x[0] for x in obs])
+				indIDdict = getIndIDdict(self.cnx, list(inds))
+				# if len(indIDdict) < len(inds):
+				# 	dlgError(parent=self, message="Some individuals are not in the pedigree")
+				# 	return
+				# using indIDdict.get() to return "NULL" if ind is not in the pedigree
+				# which is sent as NULL to mysql and will show up as not in the table
+				if self.ind_col is None:
+					obsIDconverted = [(indIDdict.get(o[0], "NULL"), indIDdict.get(o[1], "NULL"), "'%s'" % o[2]) for o in obs]
+				else:
+					obsIDconverted = [(indIDdict.get(o[0], "NULL"), "'%s'" % o[1]) for o in obs]
+				sqlState += ",".join(["(%s)" % ",".join([str(y) for y in x]) for x in obsIDconverted]) + ")"
+				curs.execute(sqlState)
+				inTable = set([x for x in curs])
+			# observations that aren't in the table (with converted IDs and "NULL" for IDs not in pedigree)
+			# outTable = set(obsIDconverted).difference(inTable)
 
+			# return values for within function checking
+			if not interact:
+				if len(inTable) == 0:
+					# none in the table - ready to import new values
+					return 0
+				elif len(inTable) == obsCount:
+					# all in the table - ready to update values
+					return 1
+				# mix of in the table and out - error
+				return 2
+			
+			# show summary message and ask whether to write a report
+			writeReportBox = QMessageBox(parent=self)
+			writeReportBox.setWindowTitle("Individual check")
+			msgTxt = "Of %s total observations, %s are already in the table. " % (len(obsIDconverted), len(inTable))
+			msgTxt += "Write report to " + self.inputFile.text() + "_obsReport.txt?"
+			writeReportBox.setText(msgTxt)
+			writeReportBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+			writeReport = writeReportBox.exec()
+
+			# write report
+			if writeReport == QMessageBox.StandardButton.Yes:
+				# change IDs back to individual names
+				indIDdict_reverse = {v : k for k,v in indIDdict.items()}
+				if self.ind_col is None:
+					inTableOrigNames = set([(indIDdict_reverse[o[0]], indIDdict_reverse[o[1]], o[2]) for o in inTable])
+				else:
+					inTableOrigNames = set([(indIDdict_reverse[o[0]], o[1]) for o in inTable])
+				outTableOrigNames = obs.difference(inTableOrigNames)
+					
+				# write report
+				with open(self.inputFile.text() + "_obsReport.txt", "w") as fout:
+					# write header line
+					if self.ind_col is None:
+						fout.write("%s\t%s\t%s\tinTable\n" % (self.sire_col, self.dam_col, self.dt_col))
+					else:
+						fout.write("%s\t%s\tinTable\n" % (self.ind_col, self.dt_col))
+					# in table
+					for o in inTableOrigNames:
+						fout.write("\t".join(o + ("TRUE",)) + "\n")
+					# not in table
+					for o in outTableOrigNames:
+						fout.write("\t".join(o + ("FALSE",)) + "\n")
+
+
+	# check column names in input file
+	def checkColNames(self, s = None, interact = True):
+		if not self.checkFile():
+			return
+		
+		# get column names from import file
+		with open(self.inputFile.text(), "r") as f:
+			h = set(f.readline().rstrip("\n").split("\t"))
+		
 		# get locus names from panel
 		with self.cnx.cursor() as curs:
-			curs.execute("SELECT intDBlocus_name FROM `%s`" % self.panelComboBox.currentText())
-			inPanel = set([x[0] for x in curs])
+			curs.execute("SELECT pheno_name FROM intDBpheno_variableInfo WHERE table_name = '%s'" % self.tableComboBox.currentText())
+			inTable = set([x[0] for x in curs])
 
 		# loci in panel but not in file
-		onlyInPanel = inPanel.difference(h)
+		onlyInTable = inTable.difference(h)
 		# loci in file but not in panel
-		onlyInFile = h.difference(inPanel)
+		onlyInFile = h.difference(inTable)
 
 		if interact:
 			messageBox = QMessageBox(parent=self)
-			messageBox.setWindowTitle("Locus name check")
-			if len(onlyInFile) == 0 and len(onlyInPanel) == 0:
-				msgTxt = "Locus names in the file match those in the panel. "
+			messageBox.setWindowTitle("Column name check")
+			if len(onlyInFile) == 0 and len(onlyInTable) == 0:
+				msgTxt = "Column names in the file match those in the table."
 			else:
 				if len(onlyInFile) > 10 or len(onlyInFile) == 0:
 					onlyInFile = [str(len(onlyInFile)) + " loci"]
-				if len(onlyInPanel) > 10 or len(onlyInPanel) == 0:
-					onlyInPanel = [str(len(onlyInPanel)) + " loci"]
-				msgTxt = "%s named only in the file \n\n %s missing from the file" % (",".join(onlyInFile), ",".join(onlyInPanel))
+				if len(onlyInTable) > 10 or len(onlyInTable) == 0:
+					onlyInPanel = [str(len(onlyInTable)) + " loci"]
+				msgTxt = "%s named only in the file \n\n %s missing from the file" % (",".join(onlyInFile), ",".join(onlyInTable))
 			messageBox.setText(msgTxt)
 			messageBox.exec()
 			return
 		
-		if len(onlyInFile) == 0 and len(onlyInPanel) == 0:
-			return (0,h)
+		if len(onlyInFile) == 0 and len(onlyInTable) == 0:
+			# all columns in both
+			return 0
 		elif len(onlyInFile) == 0:
-			return (1,h)
+			# file is missing some but all present are valid
+			return 1
 		else:
-			return (4,h)
+			# file has some that are not in the table - error
+			return 4
 
 
 	# import phenotypes
+	# checks loop through the file many times
+	# potentail to speed up by combining into one function and/or looping through 
+	# once and storing data 
+	# TODO test
 	def importPhenotypes(self):
-		if self.inputFile.text() == "":
-			dlgError(parent=self, message="No input file is selected")
+		if not self.checkFile():
 			return
 
 		if not self.updateRadio.isChecked() and not self.addNewRadio.isChecked():
-			dlgError(parent=self, message="You must indicate either add new genotypes or update existing genotypes")
+			dlgError(parent=self, message="You must indicate either add new observations or update existing observations")
 			return
 		
-		# check if alleles have been validated
-		if not hasattr(self, "newAlleles"):
-			msgTxt = "You have not checked that the allele values match what is expected. "
-			msgTxt += "If there is an unrecognized value, the import will be cancelled and the interface will crash. "
-			msgTxt += "Do you want to proceed?"
-			askBox = QMessageBox(parent=self)
-			askBox.setWindowTitle("Confirm proceed")
-			askBox.setText(msgTxt)
-			askBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-			proceed = askBox.exec()
-			if proceed == QMessageBox.StandardButton.No:
-				return
-		elif len(self.newAlleles) > 0:
-			dlgError(parent=self, message="Unrecognized alleles were found when you ran \"Check that alleles are recognized\" and have not been added to the panel.")
-			return
-
-		# make sure all loci (and no extras) are present
-		tempCheck, allLociInFile = self.checkLociNames(interact = False)
-		if  tempCheck > 1:
-			dlgError(parent=self, message="Problem with locus names. Run \"Verify locus names\"")
-			return
-		elif tempCheck == 1:
-			# file does not contain all loci
+		# check column names
+		colNameCheck = self.checkColNames(interact = False)
+		if colNameCheck == 1:
+			# warn about some missing
 			askBox = QMessageBox(parent=self)
 			askBox.setWindowTitle("Confirm proceed")
 			if self.addNewRadio.isChecked():
-				askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for the missing loci will be saved as missing genotypes. Do you want to proceed with the import?")
+				askBox.setText("One or more columns in the table are missing from the input file. Values for the missing columns will be saved as missing data. Do you want to proceed with the import?")
 			else:
-				askBox.setText("One or more loci in the panel are missing from the input file. Genotypes for the missing loci will not be updated. Do you want to proceed with the import?")
+				askBox.setText("One or more columns in the table are missing from the input file. Values for the missing columns will not be updated. Do you want to proceed with the import?")
 			askBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 			proceed = askBox.exec()
 			if proceed == QMessageBox.StandardButton.No:
 				return
-		
-		# check for duplicate inds and add inds to pedigree if needed
-		inds = getIndsFromFile(self.inputFile.text(), self.fileFormat.currentText())
-		if inds[1] and self.fileFormat.currentText() != "long":
-			dlgError(parent=self, message="Duplicate individual names in the input file")
+		elif colNameCheck > 1:
+			# error, some unrecognized
+			dlgError(parent=None, message="File contains unrecognized column names")
 			return
-		inds = list(set(inds[0])) # remove duplicates - may be present if long format
-		indsInPed = indsInPedigree(self.cnx, inds)
 
-		# make sure all are in the pedigree already if updating genotypes
-		if self.updateRadio.isChecked() and len(indsInPed[1]) > 0:
-			dlgError(parent=self, message="You are trying to update genotypes but one or more individuals is not in the pedigree")
+		# check individuals in pedigree
+		pedStatus = self.checkNewInds(interact = False)
+		# make sure all are in the pedigree already if updating observations
+		if self.updateRadio.isChecked() and len(pedStatus[1]) > 0:
+			dlgError(parent=self, message="You are trying to update observations but one or more individuals is not in the pedigree")
 			return
-		
-		retValue = addToPedigree(self.cnx, indsInPed[1], sire = None, dam = None)
+		# add individuals to the pedigree if needed
+		retValue = addToPedigree(self.cnx, pedStatus[1], sire = None, dam = None)
 		if retValue != 0:
 			dlgError(parent=self, message="Error trying to add individuals to the pedigree")
 			return
-		
-		# check for presence of individuals in the genotype table
-		tableCheck = indsInTable(self.cnx, inds, "intDB" + self.panelComboBox.currentText() + "_gt")
-		if self.addNewRadio.isChecked() and len(tableCheck[0]) > 0:
-			dlgError(parent=self, message="You are trying to add new genotypes but one or more individuals is already in the genotype table")
-			return
-		elif self.updateRadio.isChecked() and len(tableCheck[1]) > 0:
-			dlgError(parent=self, message="You are trying to update genotypes but one or more individuals is not already in the genotype table")
-			return
-		
-		# build dictionary of ind names and ind_id
-		indIDlookup = getIndIDdict(self.cnx, inds)
 
-		# build dictionary of key = locus name, 
-		# value = dict with key = genotype/allele, value of genotype/allele id
-		# OR
-		# value = tuple(ref allele, alt allele)
-		genoConvertDict = getGenoConvertDict(self.cnx, self.panelComboBox.currentText(), allLociInFile)
-		
-		# initiate iterator for selected file type
-		genoIter = self.getGenoIter()
+		# check observations in table
+		obsCheck = self.checkNewObservations(interact=False)
+		if not self.addNewRadio.isChecked() and obsCheck == 0:
+			# none in table, should be importing new
+			dlgError(parent=None, message="No observations are in the table but the add new observations option is not in use.")
+			return	
+		elif not self.updateRadio.isChecked() and obsCheck == 1:
+			# all in table, should be updating
+			dlgError(parent=None, message="All observations are already in the table but the update observations option is not in use.")
+			return			
+		elif obsCheck == 2:
+			# mix of in table and not, error
+			dlgError(parent=None, message="Some observations are already in the table and some are not.")
+			return
+		elif obsCheck == 3:
+			# duplicate observations, error
+			dlgError(parent=None, message="Some observations are duplicated in the input.")
+			return
 
+		# loop through data to check format of values
+		# check min/max constraints
+		with open(self.inputFile.text(), "r") as f:
+			# read header
+			h = f.readline().rstrip("\n").split("\t")
+			# first get unique values
+			# build dict with key = column name, value = set of unique values
+			# individual name, sire, and dam columns not in the dict
+			uniqueValueDict = {x : set() for x in h if x not in (self.ind_col, self.dam_col, self.sire_col)}
+			# positions to pull values from
+			pos = [x for x in range(0, len(h)) if h[x] not in (self.ind_col, self.dam_col, self.sire_col)]
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				for i in pos:
+					# empty string is missing data
+					if sep[i] != "":
+						uniqueValueDict[h[i]].add(sep[i])
+		# now check that all values are valid
+		sqlVarTypeDict = {} # save for insert or update function
+		for k,v in uniqueValueDict.items(): # k is column name, v is set of unique values
+			# get variable type
+			with self.cnx.cursor() as curs:
+				if k == self.dt_col:
+					repTuple = (self.cnx.database, self.tableComboBox.currentText(), "intDBu_DTobs")
+				else:
+					repTuple = (self.cnx.database, self.tableComboBox.currentText(), k)
+				curs.execute("SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS " +
+				"WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'" % repTuple)
+				sqlVarType = curs.fetchone()[0].lower()
+				sqlVarTypeDict[k] = sqlVarType
+
+				# get min/max
+				minVal, maxVal = (None, None)
+				if sqlVarType.lower() in ("int", "double"):
+					curs.execute("SELECT min_value, max_value FROM intDBpheno_variableInfo " +
+					"WHERE table_name = '%s' AND pheno_name = '%s'" % 
+					(self.tableComboBox.currentText(), k))
+					minVal, maxVal = curs.fetchone()[0]
+
+			# check format of all unique values
+			for val in v:
+				# check format
+				if sqlVarType == "int":
+					try:
+						temp = int(val)
+					except:
+						dlgError(parent=None, message="Error converting %s to an integer in column %s" % (val, k))
+						return
+				elif sqlVarType == "double":
+					try:
+						temp = float(val)
+					except:
+						dlgError(parent=None, message="Error converting %s to a number in column %s" % (val, k))
+						return
+				elif sqlVarType == "varchar":
+					pass # no validation needed, could validate character count, but not going to right now
+				elif sqlVarType == "date":
+					# check format
+					if re.fullmatch("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", val) is None:
+						dlgError(parent=None, message="%s in column %s does not conform to the MySQL date format of 'YYYY-MM-DD'" % (val, k))
+						return
+					# check year, month, and day values
+					dateSep = [int(x) for x in val.split("-")]
+					if dateSep[0] < 1000: #or dateSep[0] > 9999 # > 9999 is impossible with int of four characters
+						dlgError(parent=None, message="%s in column %s has an invalid value for year" % (val, k))
+						return
+					if dateSep[1] < 1 or dateSep[1] > 12:
+						dlgError(parent=None, message="%s in column %s has an invalid value for month" % (val, k))
+						return
+					if dateSep[2] < 1 or dateSep[2] > 31:
+						dlgError(parent=None, message="%s in column %s has an invalid value for day" % (val, k))
+						return
+				elif sqlVarType == "datetime":
+					# check format
+					if re.fullmatch("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$", val) is None:
+						dlgError(parent=None, message="%s in column %s does not conform to the MySQL date format of 'YYYY-MM-DD hh:mm:ss'" % (val, k))
+						return
+					dateSep = val.split(" ")
+					try:
+						timeSep = [int(x) for x in dateSep[1].split(":")]
+					except:
+						dlgError(parent=None, message="Error converting time portion of %s to integers in column %s" % (val, k))
+						return
+					try:
+						dateSep = [int(x) for x in dateSep[0].split("-")]
+					except:
+						dlgError(parent=None, message="Error converting date portion of %s to integers in column %s" % (val, k))
+						return
+					# check year, month, and day values
+					if dateSep[0] < 1000: #or dateSep[0] > 9999 # > 9999 is impossible with int of four characters
+						dlgError(parent=None, message="%s in column %s has an invalid value for year" % (val, k))
+						return
+					if dateSep[1] < 1 or dateSep[1] > 12:
+						dlgError(parent=None, message="%s in column %s has an invalid value for month" % (val, k))
+						return
+					if dateSep[2] < 1 or dateSep[2] > 31:
+						dlgError(parent=None, message="%s in column %s has an invalid value for day" % (val, k))
+						return
+					# check hour, minute, and second values
+					if timeSep[0] < 0 or timeSep[0] > 23:
+						dlgError(parent=None, message="%s in column %s has an invalid value for hour" % (val, k))
+						return
+					if timeSep[1] < 0 or timeSep[1] > 59:
+						dlgError(parent=None, message="%s in column %s has an invalid value for minute" % (val, k))
+						return
+					if dateSep[2] < 0 or dateSep[2] > 59:
+						dlgError(parent=None, message="%s in column %s has an invalid value for second" % (val, k))
+						return
+					pass
+				elif sqlVarType == "text":
+					pass # no validation needed, could add charcter count but unlikely that will be an issue
+				else:
+					dlgError(parent=None, message="Datatype of %s for %s is not recognized" % (sqlVarType, k))
+					return
+
+				# check min/max
+				if minVal is not None and maxVal is not None:
+					if val < minVal or val > maxVal:
+						dlgError(parent=None, message="Value of %s is outside the allowed range for column %s" % (val, k))
+						return
+		
+		# all values have been checked and are valid
+		# insert or update 
+
+		# build dictionary key of ind name, value of ind_id
+		indIDlookup = getIndIDdict(self.cnx, list(pedStatus[0] + pedStatus[1]))
 		if self.addNewRadio.isChecked():
-			# add new genotypes
-			if self.fileFormat.currentText() == "long":
-				self.addNewGenos_long(indIDlookup, genoIter, genoConvertDict)
-			else:
-				self.addNewGenos(indIDlookup, genoIter, genoConvertDict)
+			# add new phenotypes
+			self.addNewPhenos(indIDlookup, sqlVarTypeDict)
 		else:
-			# update existing genotypes
-			self.updateGenos(indIDlookup, genoIter, genoConvertDict)
+			# update existing phenotypes
+			self.updatePhenos(indIDlookup, sqlVarTypeDict)
 		
 		# commit transaction after all individuals successfully added
 		self.cnx.commit()
 		messageBox = QMessageBox(parent=self)
-		messageBox.setWindowTitle("Genotype import")
-		messageBox.setText("Genotype import complete")
+		messageBox.setWindowTitle("Phenotype import")
+		messageBox.setText("Phenotype import complete")
 		messageBox.exec()
 		self.close()
 	
 	# add new phenotypes
-	def addNewPhenos(self, indIDlookup, genoIter, genoConvertDict):
-		# get order that loci need to be in - returns tuple of locus names in order
-		locusOrder = getLocusOrderInBlob(self.cnx, self.panelComboBox.currentText())
-		# convert tuple to dictionary with key of locus name, value of position (0-based)
-		locusOrderDict = {}
-		for i in range(0, len(locusOrder)):
-			locusOrderDict[locusOrder[i]] = i
-		del locusOrder
-		with self.cnx.cursor() as curs:
-			sqlState = "INSERT INTO `intDB" + self.panelComboBox.currentText() + "_gt` (ind_id, genotypes) VALUES "
-			# for each individual, convert input to database representation, and add to database
-			for g in genoIter:
-				if self.panelTypeLabel.text() == "Biallelic":
-					# note that if memory becomes limiting, this can be done in a stream, converting to hex in chunks
-					binaryFormatString = "0%sb" % numBits(2, self.panelPloidy)
-					# convert to number of alt copies (missing is ploidy + 1) and binary (e.g. "01")
-					# initiate with all missing
-					altCopies = [self.panelPloidy + 1] * len(locusOrderDict)
-					# add genotypes for loci present in the file
-					for k, v in g.genoDict.items():
-						altCopies[locusOrderDict[k]] = genoToAltCopies(v, genoConvertDict[k])
-					# convert to binary
-					altCopies = [format(x, binaryFormatString) for x in altCopies]
-					# join together into one long string
-					altCopies = "".join(altCopies)
-					# pad with zeros on the end to make complete bytes
-					altCopies += "0" * (8 - (len(altCopies) % 8))
-					# convert to hex string 4 digits at a time to make sure we keep all 0s
-					# and prevent any issues with large numbers
-					hexString = "".join([format(int(altCopies[x:(x+4)], 2), "01x") for x in range(0, len(altCopies), 4)])
-					del altCopies # save some memory
+	# TODO test
+	def addNewPhenos(self, indIDlookup, sqlVarTypeDict):
+		with open(self.inputFile.text(), "r") as f:
+			# build SQL statement
+			h = f.readline().rstrip("\n").split("\t") # read header
+			sqlColNames = h
+			sqlState = "INSERT INTO `%s` (" % self.tableComboBox.currentText()
+			if self.ind_col is None:
+				# position of columns with names
+				IDpos = [h.index(self.sire_col), h.index(self.dam_col)]
+				sqlColNames[IDpos[0]] = "intDBsire"
+				sqlColNames[IDpos[1]] = "intDBdam"
+			else:
+				IDpos = [h.index(self.ind_col)]
+				sqlColNames[IDpos[0]] = "intDBind_id"
+			DTpos = h.index(self.dt_col) # position of date(time) column
+			sqlColNames[DTpos] = "intDBu_DTobs"
+			sqlState += ",".join(["`%s`" % x for x in sqlColNames])
+			sqlState += ") VALUES "
+			# build substitution string for adding quotes as needed
+			sqlValueSubString = []
+			for i in range(0, len(h)):
+				if i in IDpos or sqlVarTypeDict[h[i]] == "double" or sqlVarTypeDict[h[i]] == "int":
+					sqlValueSubString += ["%s"] # no quotes
 				else:
-					if self.panelTypeLabel.text() == "Multiallelic":
-						# convert the sorted genotype tuple into an integer < 256
-						# initiate with all missing
-						blobInts = [0] * len(locusOrderDict)
-						# add genotypes for loci present in the file
-						for k, v in g.genoDict.items():
-							blobInts[locusOrderDict[k]] = genoConvertDict[k][v]
-					else:
-						# Hyperallelic
-						# convert the alleles into integers < 256
-						# initiate with all missing
-						blobInts = [0] * (len(locusOrderDict) * self.panelPloidy)
-						# add genotypes for loci present in the file
-						for k, v in g.genoDict.items():
-							for i in range(0, self.panelPloidy):
-								blobInts[(locusOrderDict[k] * self.panelPloidy) + i] = genoConvertDict[k][v[i]]
-					# convert ints into hex
-					hexString = "".join([format(x, "02x") for x in blobInts])
-					del blobInts # save a bit of memory for large panels
-				# add to database
-				curs.execute(sqlState + "(%s,X'%s')" % (indIDlookup[g.indName], hexString))
+					sqlValueSubString += ["'%s'"]
+				sqlValueSubString = "(" + ",".join(sqlValueSubString) + "),"
+				# makes something like "(%s,'%s','%s','%s',%s,'%s'),"
+			# add all rows to the statement
+			for line in f:
+				sep = line.rstrip("\n").split("\t")
+				# convert individual names to internal ID numbers
+				for i in IDpos:
+					sep[i] = indIDlookup[sep[i]]
+				sqlState += sqlValueSubString % tuple(sep)
+		with self.cnx.cursor() as curs:
+			curs.execute(sqlState.rstrip(","))
 
 
 	# update phenotypes in database by overwriting existing phenotypes
-	def updatePhenos(self, indIDlookup, genoIter, genoConvertDict):
-		# get a tuple of locus names in order
-		locusOrder = getLocusOrderInBlob(self.cnx, self.panelComboBox.currentText())
-		# convert tuple to dictionary with key of locus name, value of position (0-based)
-		locusOrderDict = {}
-		for i in range(0, len(locusOrder)):
-			locusOrderDict[locusOrder[i]] = i
-		del locusOrder
-
+	# TODO test
+	def updatePhenos(self, indIDlookup, sqlVarTypeDict):
 		with self.cnx.cursor() as curs:
-			sqlState_update = "UPDATE `intDB%s_gt` SET " % self.panelComboBox.currentText()
-			if self.panelTypeLabel.text() == "Biallelic":
-				# calculate once if needed
-				nb = numBits(2, self.panelPloidy)
-				binaryFormatString = "0%sb" % nb
-			# for each individual, convert input to database representation, and add to database
-			for g in genoIter:
-				# get existing genotypes as a list of ints
-				curs.execute("SELECT genotypes FROM `intDB%s_gt` WHERE ind_id = %s" % (self.panelComboBox.currentText(), indIDlookup[g.indName]))
-				if self.panelTypeLabel.text() == "Biallelic":
-					# convert to binary 
-					blobInts = "".join([format(x, "08b") for x in curs.fetchone()[0]])
-					# unpack bitwise into loci and convert to ints
-					# note we are ignoring padding on the right, will need to tack on 0s on insert
-					blobInts = [int(blobInts[x:(x + nb)], 2) for x in range(0, len(locusOrderDict) * nb, nb)] 
+			with open(self.inputFile.text(), "r") as f:
+				# build SQL statement
+				h = f.readline().rstrip("\n").split("\t") # read header
+				sqlState = "UPDATE `%s` SET " % self.tableComboBox.currentText()
+				if self.ind_col is None:
+					# position of columns with names
+					IDpos = [h.index(self.sire_col), h.index(self.dam_col)]
 				else:
-					# convert bytes to ints
-					blobInts = [x for x in curs.fetchone()[0]]
-				
-				# update with genotypes for loci in g
-				if self.panelTypeLabel.text() == "Biallelic":
-					for k, v in g.genoDict.items(): # key is locus name, value is tuple of alleles
-						blobInts[locusOrderDict[k]] = genoToAltCopies(v, genoConvertDict[k])
-					# convert ints to binary
-					blobInts = [format(x, binaryFormatString) for x in blobInts]
-					# join together into one long string
-					blobInts = "".join(blobInts)
-					# pad with zeros on the end to make complete bytes
-					blobInts += "0" * (8 - (len(blobInts) % 8))
-					# convert to hex string 4 digits at a time to make sure we keep all 0s
-					# and prevent any issues with large numbers
-					hexString = "".join([format(int(blobInts[x:(x+4)], 2), "01x") for x in range(0, len(blobInts), 4)])
-					del blobInts # save some memory
-				else:
-					if self.panelTypeLabel.text() == "Multiallelic":
-						for k, v in g.genoDict.items(): # key is locus name, value is tuple of alleles
-							blobInts[locusOrderDict[k]] = genoConvertDict[k][v]
-					else:
-						# Hyperallelic
-						for k, v in g.genoDict.items(): # key is locus name, value is tuple of alleles
-							for i in range(0, self.panelPloidy):
-								blobInts[(locusOrderDict[k] * self.panelPloidy) + i] = genoConvertDict[k][v[i]]
-					# convert ints into hex
-					hexString = "".join([format(x, "02x") for x in blobInts])
-					del blobInts # save a bit of memory for large panels
+					IDpos = [h.index(self.ind_col)]
+				DTpos = h.index(self.dt_col) # position of date(time) column
 
-				# update statement
-				curs.execute(sqlState_update + "genotypes=X'%s' WHERE ind_id = %s" % (hexString, indIDlookup[g.indName]))
+				# build substitution string for adding quotes as needed
+				sqlColOrder = [] # order of columns for SQL
+				for i in range(0, len(h)):
+					if i in IDpos or i == DTpos:
+						continue
+					sqlColOrder += [i]
+					sqlState += h[i] + "="
+					if sqlVarTypeDict[h[i]] == "double" or sqlVarTypeDict[h[i]] == "int":
+						sqlState += "{a[%s]}," % i # no quotes
+					else:
+						sqlState += "'{a[%s]}'," % i
+				sqlState = sqlState.rstrip(",") # remove last comma
+				sqlColOrder += IDpos
+				sqlColOrder += [DTpos]
+				sqlState += " WHERE "
+				if self.ind_col is None:
+					sqlState += "intDBsire={a[%s]} AND intDBdam={a[%s]} AND intDBu_DTobs='{a[%s]}'" % tuple(IDpos + [DTpos])
+				else:
+					sqlState += "intDBind_id={a[%s]} AND intDBu_DTobs='{a[%s]}'" % tuple(IDpos + [DTpos])
+				# sqlState is now something like
+				# UPDATE `%s` SET var1={a[2]},var2='{a[3]}',var3={a[4]} WHERE indDBind_id={a[0]} AND intDBu_DTobs='{a[1]}'
+
+				# update each observation in input
+				for line in f:
+					sep = line.rstrip("\n").split("\t")
+					# convert individual names to internal ID numbers
+					for i in IDpos:
+						sep[i] = indIDlookup[sep[i]]
+					curs.execute(sqlState.format(a = sep))

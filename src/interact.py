@@ -47,8 +47,8 @@ class interactWindow(QMainWindow):
 		removeEmptyPanel_button = QAction("Remove an empty genotype panel", self)
 		removeEmptyPanel_button.setStatusTip("This can remove a genotype panel that does not have any genotypes in it")
 		removeEmptyPanel_button.triggered.connect(self.removeEmptyPanel)
-		makePhenoTable_button = QAction("Add a new phenotype panel", self)
-		makePhenoTable_button.setStatusTip("This creates a new phenotype panel in the current database")
+		makePhenoTable_button = QAction("Add a new phenotype table", self)
+		makePhenoTable_button.setStatusTip("This creates a new phenotype table in the current database")
 		makePhenoTable_button.triggered.connect(self.makePhenoTable)
 
 		# TODO remove an empty phenotype table

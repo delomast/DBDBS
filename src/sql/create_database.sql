@@ -25,7 +25,8 @@ CREATE TABLE intDBpheno_variableInfo (
 	pheno_description TEXT,
 	min_value DOUBLE,
 	max_value DOUBLE,
-	FOREIGN KEY (table_name) REFERENCES intDBpheno_overview(table_name)
+	FOREIGN KEY (table_name) REFERENCES intDBpheno_overview(table_name),
+	PRIMARY KEY (table_name, pheno_name)
 );
 
 -- create genetic group information table

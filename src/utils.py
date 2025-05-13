@@ -184,12 +184,13 @@ def removePartialPanel(userInfo : dict, panelName : str):
 # returns a tuple of two tuples, first has inds in 
 # the pedigree, second has inds not in the pedigree
 def indsInPedigree(cnx : connector, inds : list):
-	inPed = []
+	inPed = set()
+	inds = set(inds)
 	if len(inds) > 0:
 		with cnx.cursor() as curs:
 			curs.execute("SELECT ind FROM intDBpedigree WHERE ind IN (%s)" % ",".join(["'%s'" % x for x in inds]))
-			inPed = [x[0] for x in curs]
-	outPed = [x for x in inds if x not in inPed]
+			inPed = set([x[0] for x in curs])
+	outPed = inds.difference(inPed)
 	return (tuple(inPed), tuple(outPed))
 
 # checking which inds are in a table already
@@ -198,6 +199,7 @@ def indsInPedigree(cnx : connector, inds : list):
 # assumes table has ind_id column which
 # should be linked as foreign key to pedigree table
 def indsInTable(cnx : connector, inds : list, tableName : str):
+	inds = set(inds)
 	with cnx.cursor() as curs:
 		sqlState = """
 		SELECT intDBpedigree.ind
@@ -206,8 +208,8 @@ def indsInTable(cnx : connector, inds : list, tableName : str):
 		WHERE intDBpedigree.ind IN (%s)
 		""" % (tableName, ",".join(["'%s'" % x for x in inds]))
 		curs.execute(sqlState)
-		inTable = [x[0] for x in curs]
-	outTable = [x for x in inds if x not in inTable]
+		inTable = set([x[0] for x in curs])
+	outTable = inds.difference(inTable)
 	return (tuple(inTable), tuple(outTable))
 
 

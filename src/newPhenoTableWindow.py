@@ -175,7 +175,7 @@ class newPhenoTableWindow(QDialog):
 			validTypes = ["ind_name"]
 		else:
 			validTypes = ["sire_name", "dam_name"]
-		validTypes += ["u_DATE", "u_DATETIME", "INTEGER", "DOUBLE", "VARCHAR(255)", "VARCHAR(65535)", "TEXT", "DATE", "DATETIME"]
+		validTypes += ["u_DATE", "u_DATETIME", "INTEGER", "DOUBLE", "VARCHAR(60)", "VARCHAR(1000)", "TEXT", "DATE", "DATETIME"]
 		return(validTypes)
 	
 	def onSubmit(self):
