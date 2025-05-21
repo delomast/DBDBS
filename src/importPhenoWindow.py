@@ -3,14 +3,13 @@ import mysql.connector as connector
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
 	QPushButton, QLabel, QComboBox, 
-	 QGridLayout, QCheckBox,
-	 QFileDialog, QVBoxLayout, QSpinBox, QDialog,
+	 QGridLayout,
+	 QFileDialog, QVBoxLayout, QDialog,
 	 QRadioButton, QHBoxLayout, QMessageBox
 )
 import re
 from .utils import (dlgError, 
-	indsInPedigree,
-	indsInTable, getIndsFromFile, addToPedigree, getIndIDdict,
+	indsInPedigree, addToPedigree, getIndIDdict
 )
 
 # using QDialog class and exec to block other windows - only one active window at a time
@@ -45,9 +44,9 @@ class importPhenoWindow(QDialog):
 		self.dam_col = None
 		self.dt_col = None
 		self.table_description = None
-		self.colNames = [] # column names NOT including sire, dam, ind, date(time)
-		self.minValue = []
-		self.maxValue = []
+		# self.colNames = [] # column names NOT including sire, dam, ind, date(time)
+		# self.minValue = []
+		# self.maxValue = []
 
 		# check for new individuals button
 		self.checkIndsButton = QPushButton("Check if individuals are in the pedigree")
@@ -131,16 +130,16 @@ class importPhenoWindow(QDialog):
 			## or just have a button to open a window with phenotype descriptions?
 			## I think there is no need to display the descriptions here, just get the column names and maybe have a button to show them?
 			## descriptions can be viewed in a different function?
-			self.colNames = [] # column names NOT including sire, dam, ind, date(time)
-			self.minValue = []
-			self.maxValue = []
-			curs.execute("SELECT pheno_name, min_value, max_value FROM intDBpheno_variableInfo WHERE table_name = '%s'" % self.tableComboBox.currentText())
-			for res in curs:
-				if res[0] in (self.ind_col, self.sire_col, self.dam_col, self.dt_col):
-					continue
-				self.colNames += [res[0]]
-				self.minValue += [res[1]]
-				self.maxValue += [res[2]]
+			# self.colNames = [] # column names NOT including sire, dam, ind, date(time)
+			# self.minValue = []
+			# self.maxValue = []
+			# curs.execute("SELECT pheno_name, min_value, max_value FROM intDBpheno_variableInfo WHERE table_name = '%s'" % self.tableComboBox.currentText())
+			# for res in curs:
+			# 	if res[0] in (self.ind_col, self.sire_col, self.dam_col, self.dt_col):
+			# 		continue
+			# 	self.colNames += [res[0]]
+			# 	self.minValue += [res[1]]
+			# 	self.maxValue += [res[2]]
 
 	# open file dialog for user to select an input file
 	def onClickInputFile(self):
@@ -369,9 +368,8 @@ class importPhenoWindow(QDialog):
 
 	# import phenotypes
 	# checks loop through the file many times
-	# potentail to speed up by combining into one function and/or looping through 
+	# potential to speed up by combining into one function and/or looping through 
 	# once and storing data 
-	# TODO test
 	def importPhenotypes(self):
 		if not self.checkFile():
 			return
@@ -467,7 +465,7 @@ class importPhenoWindow(QDialog):
 					curs.execute("SELECT min_value, max_value FROM intDBpheno_variableInfo " +
 					"WHERE table_name = '%s' AND pheno_name = '%s'" % 
 					(self.tableComboBox.currentText(), k))
-					minVal, maxVal = curs.fetchone()[0]
+					minVal, maxVal = curs.fetchone()
 
 			# check format of all unique values
 			for val in v:
@@ -546,8 +544,8 @@ class importPhenoWindow(QDialog):
 					return
 
 				# check min/max
-				if minVal is not None and maxVal is not None:
-					if val < minVal or val > maxVal:
+				if minVal is not None and maxVal is not None and (sqlVarType == "double" or sqlVarType == "int"):
+					if temp < minVal or temp > maxVal:
 						dlgError(parent=None, message="Value of %s is outside the allowed range for column %s" % (val, k))
 						return
 		
@@ -572,12 +570,11 @@ class importPhenoWindow(QDialog):
 		self.close()
 	
 	# add new phenotypes
-	# TODO test
 	def addNewPhenos(self, indIDlookup, sqlVarTypeDict):
 		with open(self.inputFile.text(), "r") as f:
 			# build SQL statement
 			h = f.readline().rstrip("\n").split("\t") # read header
-			sqlColNames = h
+			sqlColNames = h.copy()
 			sqlState = "INSERT INTO `%s` (" % self.tableComboBox.currentText()
 			if self.ind_col is None:
 				# position of columns with names
@@ -598,8 +595,8 @@ class importPhenoWindow(QDialog):
 					sqlValueSubString += ["%s"] # no quotes
 				else:
 					sqlValueSubString += ["'%s'"]
-				sqlValueSubString = "(" + ",".join(sqlValueSubString) + "),"
-				# makes something like "(%s,'%s','%s','%s',%s,'%s'),"
+			sqlValueSubString = "(" + ",".join(sqlValueSubString) + "),"
+			# makes something like "(%s,'%s','%s','%s',%s,'%s'),"
 			# add all rows to the statement
 			for line in f:
 				sep = line.rstrip("\n").split("\t")
@@ -612,7 +609,6 @@ class importPhenoWindow(QDialog):
 
 
 	# update phenotypes in database by overwriting existing phenotypes
-	# TODO test
 	def updatePhenos(self, indIDlookup, sqlVarTypeDict):
 		with self.cnx.cursor() as curs:
 			with open(self.inputFile.text(), "r") as f:

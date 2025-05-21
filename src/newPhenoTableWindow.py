@@ -35,7 +35,7 @@ class newPhenoTableWindow(QDialog):
 		# file to define table
 		# just contains header row of column names - other rows ignored so it
 		# can be a file containing data
-		self.selectDefFile = QPushButton("Select definition file")
+		self.selectDefFile = QPushButton("Select file")
 		self.selectDefFile.clicked.connect(self.onClickDefFile)
 		self.curFileSelected = QLabel("")
 		self.curFileSelected.setWordWrap(True)
@@ -68,7 +68,7 @@ class newPhenoTableWindow(QDialog):
 
 
 	def onClickDefFile(self):
-		tempFile = QFileDialog.getOpenFileName(self, "Select table definition file", "/home/")[0]
+		tempFile = QFileDialog.getOpenFileName(self, "Select file", "/home/")[0]
 		if tempFile == "":
 			return
 		self.tableDefFile = tempFile
