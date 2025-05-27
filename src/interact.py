@@ -20,6 +20,7 @@ from .exportGenoWindow import exportGenoWindow
 from .pedWindow import pedWindow
 from .newPhenoTableWindow import newPhenoTableWindow
 from .importPhenoWindow import importPhenoWindow
+from .exportPhenoWindow import exportPhenoWindow
 
 
 class interactWindow(QMainWindow):
@@ -66,14 +67,15 @@ class interactWindow(QMainWindow):
 		importExportPedButton.clicked.connect(self.importExportPed)
 		importPhenoButton = QPushButton("Import phenotype data")
 		importPhenoButton.clicked.connect(self.importPheno)
-
-		# TODO import individual phenoptypes
+		exportPhenoButton = QPushButton("Export phenotype data")
+		exportPhenoButton.clicked.connect(self.exportPheno)
 
 		# TODO export individual phenoptypes
-		# TODO import family phenoptypes
 		# TODO export family phenoptypes
 		# TODO remove genotypes
 		# TODO remove phenoptypes
+		# TODO remove empty phenotype tables
+		# TODO export database backup copy
 
 
 
@@ -102,6 +104,7 @@ class interactWindow(QMainWindow):
 		layout.addWidget(exportGenoButton, 3, 0)
 		layout.addWidget(importExportPedButton, 4, 0)
 		layout.addWidget(importPhenoButton, 5, 0)
+		layout.addWidget(exportPhenoButton, 6, 0)
 		# TODO: add buttons for phenotype import and export functions here
 		widget = QWidget()
 		widget.setLayout(layout)
@@ -270,4 +273,12 @@ class interactWindow(QMainWindow):
 			return
 		self.iphenWindow = importPhenoWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.iphenWindow.exec()
+
+	# open import phenotype data window
+	def exportPheno(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		self.ephenWindow = exportPhenoWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.ephenWindow.exec()
 

@@ -224,8 +224,10 @@ def getIndsFromFile(fileName : str, fileType : str) -> list:
 			# using within family ID
 			inds = [re.split("\t| ", line.rstrip("\n"))[1] for line in f]
 		elif fileType == "forExport":
-			# no header in export file, only one column
-			inds = [line.rstrip("\n") for line in f]
+			# REQUIRED header in export file, either only one column
+			# or tab separated and takes the first column
+			header = f.readline() # skip header
+			inds = [line.rstrip("\n").split("\t")[0] for line in f]
 		elif fileType == "pedImport":
 			# file is indName, sireName, damName
 			# with a header

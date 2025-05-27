@@ -110,7 +110,7 @@ class importPhenoWindow(QDialog):
 
 
 	def tableSelectionChange(self):
-		# clear new allele information
+		# clear and update information
 		with self.cnx.cursor() as curs:
 			curs.execute("SELECT ind_name_col, sire_name_col, dam_name_col, time_obs_col, table_description FROM intDBpheno_overview WHERE table_name = %s", (self.tableComboBox.currentText(),))
 			info =[x for x in curs.fetchone()]
@@ -482,7 +482,7 @@ class importPhenoWindow(QDialog):
 					except:
 						dlgError(parent=None, message="Error converting %s to a number in column %s" % (val, k))
 						return
-				elif sqlVarType == "varchar":
+				elif sqlVarType == "varchar" or sqlVarType == "text":
 					pass # no validation needed, could validate character count, but not going to right now
 				elif sqlVarType == "date":
 					# check format
@@ -536,9 +536,6 @@ class importPhenoWindow(QDialog):
 					if dateSep[2] < 0 or dateSep[2] > 59:
 						dlgError(parent=None, message="%s in column %s has an invalid value for second" % (val, k))
 						return
-					pass
-				elif sqlVarType == "text":
-					pass # no validation needed, could add charcter count but unlikely that will be an issue
 				else:
 					dlgError(parent=None, message="Datatype of %s for %s is not recognized" % (sqlVarType, k))
 					return
