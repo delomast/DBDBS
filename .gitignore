@@ -1,6 +1,8 @@
 # non-distribution files
 interface_db/
 archive/
+outputTest/
+plinkFiles/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

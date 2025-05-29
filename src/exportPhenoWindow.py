@@ -302,8 +302,8 @@ class exportPhenoWindow(QDialog):
 
 		# generate message box stating the export is done
 		messageBox = QMessageBox(parent=self)
-		messageBox.setWindowTitle("Genotype export")
-		messageBox.setText("Genotype export complete")
+		messageBox.setWindowTitle("Phenotype export")
+		messageBox.setText("Phenotype export complete")
 		messageBox.exec()
 		self.close()
 
