@@ -24,7 +24,7 @@ class importPhenoWindow(QDialog):
 		self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
 		self.setMinimumSize(500, 400) # trying to avoid :"Unable to set geometry" warning
 
-		# panel selection dropbox
+		# table selection dropbox
 		self.tableComboBox = QComboBox()
 		with cnx.cursor() as curs:
 			curs.execute("SELECT table_name FROM intDBpheno_overview")

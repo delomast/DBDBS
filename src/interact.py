@@ -1,5 +1,6 @@
 # Main interaction window
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
 	QMainWindow, QPushButton, QLabel, 
@@ -20,12 +21,17 @@ from .pedWindow import pedWindow
 from .newPhenoTableWindow import newPhenoTableWindow
 from .importPhenoWindow import importPhenoWindow
 from .exportPhenoWindow import exportPhenoWindow
+from .deleteDataWindow import deleteDataWindow
 
 
 class interactWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
 		self.setWindowTitle("DBDBS")
+
+		self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
+		self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+		self.setMinimumSize(500, 400) # trying to avoid :"Unable to set geometry" warning
 
 		# define menu for rare actions
 		menu = self.menuBar()
@@ -90,11 +96,15 @@ class interactWindow(QMainWindow):
 		importPhenoButton.clicked.connect(self.importPheno)
 		exportPhenoButton = QPushButton("Export phenotype data")
 		exportPhenoButton.clicked.connect(self.exportPheno)
+		deleteDataButton = QPushButton("Delete data")
+		deleteDataButton.clicked.connect(self.deleteData)
 
 		# TODO remove genotypes
 		# TODO remove phenoptypes
 		# TODO remove individuals from the pedigree
 		# TODO documentation
+		# TODO table info screen/export
+		# TODO genotype info screen/export
 
 
 
@@ -124,6 +134,10 @@ class interactWindow(QMainWindow):
 		layout.addWidget(importExportPedButton, 4, 0)
 		layout.addWidget(importPhenoButton, 5, 0)
 		layout.addWidget(exportPhenoButton, 6, 0)
+		layout.addWidget(deleteDataButton, 1, 1)
+		# make columns equally sized when sufficient space is available
+		for i in range(0,layout.columnCount()):
+			layout.setColumnStretch(i, 1)
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
@@ -317,6 +331,20 @@ class interactWindow(QMainWindow):
 			return
 		self.ephenWindow = exportPhenoWindow(cnx = self.cnx, userInfo = self.userInfo)
 		self.ephenWindow.exec()
+	
+	# open delete data window
+	def deleteData(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Warning")
+		messageBox.setText("You are now entering the DANGER ZONE.\nThis allows you to permanently delete data " +
+					 "from the database. There is no undo functionality. Please consider backing up the database " +
+					 "before proceeding.")
+		messageBox.exec()
+		self.delWindow = deleteDataWindow(cnx = self.cnx, userInfo = self.userInfo)
+		self.delWindow.exec()
 	
 	# create a backup file using mysqldump
 	def createBackupMysqldump(self):
