@@ -180,6 +180,30 @@ def removePartialPanel(userInfo : dict, panelName : str):
 	cnxTemp.close()
 	return 0
 
+# remove a partial or whole phenotype table if it is empty (no phenotypes stored)
+# in case an error is encountered after some commits have already been made
+# this will remove any of the tables/rows made from this table
+# it will only remove tables that do not contain phenotype data and so
+# will not delete a panel with phenotypes present
+def removePartialPhenoTable(userInfo : dict, tableName : str):
+	cnxTemp = getConnection(userInfo)
+	with cnxTemp.cursor() as curs:
+		# make sure phenotype table is empty, if it exists
+		curs.execute("SHOW TABLES LIKE '%s'" % tableName)
+		if next(curs, [None])[0] is not None:
+			curs.execute("SELECT 1 FROM `%s` LIMIT 1" % tableName)
+			if next(curs, [None])[0] is not None:
+				return 1
+			# remove phenotype table
+			curs.execute("DROP TABLE `%s`" % tableName)
+		# remove from intDBpheno_variableInfo, if rows exist
+		curs.execute("DELETE FROM intDBpheno_variableInfo WHERE table_name = '%s'" % tableName)
+		# remove from intDBpheno_overview, if row exists
+		curs.execute("DELETE FROM intDBpheno_overview WHERE table_name = '%s'" % tableName)
+	cnxTemp.commit()
+	cnxTemp.close()
+	return 0
+
 # checking which inds are in the pedigree already
 # returns a tuple of two tuples, first has inds in 
 # the pedigree, second has inds not in the pedigree

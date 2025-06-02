@@ -11,7 +11,7 @@ import subprocess
 import shutil
 import mysql.connector as connector
 from .login import loginDialog
-from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection, removePartialPanel
+from .utils import dlgError, saveInfo, identifier_syntax_check, getConnection, removePartialPanel, removePartialPhenoTable
 from . import PACKAGEDIR
 from .newPanelWindow import newPanelWindow
 from .importGenoWindow import importGenoWindow
@@ -41,16 +41,21 @@ class interactWindow(QMainWindow):
 		switchDB_button.setStatusTip("This switches to a different database on the connected server")
 		switchDB_button.triggered.connect(self.switchDB)
 		# add a new genotyping panel
-		makePanel_button = QAction("Add a new genotyping panel", self)
+		makePanel_button = QAction("Add a new genotype panel", self)
 		makePanel_button.setStatusTip("This creates a new genotype panel in the current database")
 		makePanel_button.triggered.connect(self.makePanel)
 		# remove an empty genotyping panel
 		removeEmptyPanel_button = QAction("Remove an empty genotype panel", self)
 		removeEmptyPanel_button.setStatusTip("This can remove a genotype panel that does not have any genotypes in it")
 		removeEmptyPanel_button.triggered.connect(self.removeEmptyPanel)
+		# add a new phenotype table
 		makePhenoTable_button = QAction("Add a new phenotype table", self)
 		makePhenoTable_button.setStatusTip("This creates a new phenotype table in the current database")
 		makePhenoTable_button.triggered.connect(self.makePhenoTable)
+		# remove an empty phenotype table
+		removeEmptyPhenoTable_button = QAction("Remove an empty phenotype table", self)
+		removeEmptyPhenoTable_button.setStatusTip("This can remove a phenotype table that does not have any phenotypes in it")
+		removeEmptyPhenoTable_button.triggered.connect(self.removeEmptyPhenoTable)
 
 		# create a backup file with mysqldump
 		createBackupdump_button = QAction("Create a database backup file - mysqldump", self)
@@ -61,7 +66,7 @@ class interactWindow(QMainWindow):
 		useBackupdump_button.setStatusTip("This uses a backup file created by mysqldump to create a new database")
 		useBackupdump_button.triggered.connect(self.useBackupMysqldump)
 		
-		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button, makePhenoTable_button])
+		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button, makePhenoTable_button, removeEmptyPhenoTable_button])
 		backupMenu.addActions([createBackupdump_button, useBackupdump_button])
 
 		# define widgets
@@ -81,9 +86,9 @@ class interactWindow(QMainWindow):
 		# TODO remove genotypes
 		# TODO remove phenoptypes
 		# TODO remove individuals from the pedigree
-		# TODO remove empty phenotype tables
-		# TODO export database backup copy
-		# TODO import database backup copy
+		# TODO export database backup copy with mysql shell
+		# TODO import database backup copy with mysql shell
+		# TODO documentation
 
 
 
@@ -113,7 +118,6 @@ class interactWindow(QMainWindow):
 		layout.addWidget(importExportPedButton, 4, 0)
 		layout.addWidget(importPhenoButton, 5, 0)
 		layout.addWidget(exportPhenoButton, 6, 0)
-		# TODO: add buttons for phenotype import and export functions here
 		widget = QWidget()
 		widget.setLayout(layout)
 		self.setCentralWidget(widget)
@@ -159,9 +163,8 @@ class interactWindow(QMainWindow):
 			return
 		if dbName is None:
 			# list all databases on server
-			# NOTE: this will later be updated to only list dbdbs databases
 			with self.cnx.cursor() as curs:
-				curs.execute("SHOW DATABASES")
+				curs.execute("SELECT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'intdbpedigree'")
 				dbAvail = [x[0] for x in curs]
 			dbName = QInputDialog.getItem(self, "Choose database", "Database name:", dbAvail, editable=False)
 			if dbName[1]:
@@ -248,7 +251,26 @@ class interactWindow(QMainWindow):
 		elif retVal == 0:
 			msgBox = QMessageBox(parent=self)
 			msgBox.setWindowTitle("Panel removed")
-			msgBox.setText("Panel successfully removed")
+			msgBox.setText("If it existed, panel was successfully removed")
+			msgBox.exec()
+	
+	# remove a partial or full phenotype table with no phenotypes, if it exists
+	def removeEmptyPhenoTable(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		table = QInputDialog.getText(self, "Remove an empty phenotype table", "Table name:")
+		if table[1] and table[0] != "":
+			table = table[0]
+		else:
+			return
+		retVal = removePartialPhenoTable(self.userInfo, table)
+		if retVal == 1:
+			dlgError(parent=self, message="Table contains phenotypes. Table was NOT removed.")
+		elif retVal == 0:
+			msgBox = QMessageBox(parent=self)
+			msgBox.setWindowTitle("Table removed")
+			msgBox.setText("If it existed, table was successfully removed")
 			msgBox.exec()
 
 	# open import genotypes window
