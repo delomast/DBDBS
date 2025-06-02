@@ -65,9 +65,17 @@ class interactWindow(QMainWindow):
 		useBackupdump_button = QAction("Create a new database from a mysqldump SQL backup file", self)
 		useBackupdump_button.setStatusTip("This uses a backup file created by mysqldump to create a new database")
 		useBackupdump_button.triggered.connect(self.useBackupMysqldump)
+		# create a backup file with mysqlsh
+		createBackupsh_button = QAction("Create a database backup file - mysqlsh", self)
+		createBackupsh_button.setStatusTip("This uses a local copy of the mysqlsh program to create a backup file")
+		createBackupsh_button.triggered.connect(self.createBackupMysqlsh)
+		# load a mysqlsh backup file
+		useBackupsh_button = QAction("Restore a database from a mysqlsh backup folder", self)
+		useBackupsh_button.setStatusTip("This uses a backup folder created by mysqlsh to create a new database")
+		useBackupsh_button.triggered.connect(self.useBackupMysqlsh)
 		
 		actionMenu.addActions([makeDB_button, switchDB_button, makePanel_button, removeEmptyPanel_button, makePhenoTable_button, removeEmptyPhenoTable_button])
-		backupMenu.addActions([createBackupdump_button, useBackupdump_button])
+		backupMenu.addActions([createBackupdump_button, useBackupdump_button, createBackupsh_button, useBackupsh_button])
 
 		# define widgets
 		loginToServerButton = QPushButton("Login to server") # login button
@@ -86,8 +94,6 @@ class interactWindow(QMainWindow):
 		# TODO remove genotypes
 		# TODO remove phenoptypes
 		# TODO remove individuals from the pedigree
-		# TODO export database backup copy with mysql shell
-		# TODO import database backup copy with mysql shell
 		# TODO documentation
 
 
@@ -325,16 +331,6 @@ class interactWindow(QMainWindow):
 					" for backing up the database is to use the 'MySQL Shell' utilities 'util.dumpSchemas()' to generate backup files and" +
 					 " 'util.loadDump()' to load the backup files as needed.")
 		messageBox.exec()
-		# Putting examples of using mysql shell for backup here as an easy reference
-		# mysqlsh # start mysql shell
-		# \js # enter javascript mode
-		# util.dumpSchemas(["cvir_test"], "C:/cvirTestDump") # generate backup of one database
-
-		# mysqlsh # start mysql shell
-		# SET GLOBAL local_infile = 'ON'; # set variable allowing loading from a file
-		# \js # start javascript mode
-		# util.loadDump("C:/cvirTestDump") # load in backup
-
 
 		# get output file name
 		tempFile = QFileDialog.getSaveFileName(self, "Save output as", "/home/")[0]
@@ -423,7 +419,7 @@ class interactWindow(QMainWindow):
 			if mysqlPath == "":
 				dlgError(parent=None, message="mysql not found or selected")
 				return
-		# create backup
+		# SOURCE file
 		argList = [mysqlPath, "-p%s" % self.userInfo["pw"], "-u", self.userInfo["un"], "-h", self.userInfo["host"], "-D", newDB, "-e", "SOURCE %s" % backupFile]
 		# print(subprocess.list2cmdline(argList))
 		shellOut = subprocess.run(argList)
@@ -444,4 +440,117 @@ class interactWindow(QMainWindow):
 			messageBox.setWindowTitle("Error")
 			messageBox.setText("Error executing backup file.")
 		self.cnx.commit()
+		messageBox.exec()
+
+	# Putting examples of using mysql shell on the command line for backup here as an easy reference
+	# mysqlsh # start mysql shell
+	# \js # enter javascript mode
+	# util.dumpSchemas(["cvir_test"], "C:/cvirTestDump") # generate backup of one database
+
+	# mysqlsh # start mysql shell
+	# SET GLOBAL local_infile = 'ON'; # set variable allowing loading from a file
+	# \js # start javascript mode
+	# util.loadDump("C:/cvirTestDump") # load in backup
+
+	# create a backup folder using mysql shell
+	def createBackupMysqlsh(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		# warnings
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Warnings")
+		messageBox.setText(" The program 'mysqlsh' will be used. Depending on your system and database, this could be slow and result in very large files. An alternative option" +
+					" is to use the 'MySQL Shell' utilities directly ('util.dumpSchemas()' to generate backup files and" +
+					 " 'util.loadDump()' to load the backup files as needed) for more control.")
+		messageBox.exec()
+
+		# get output folder name
+		tempFile = QFileDialog.getSaveFileName(self, "Save output as", "/home/")[0]
+		if tempFile == "":
+			return
+		# find mysqlsh
+		mysqlshPath = shutil.which("mysqlsh")
+		if mysqlshPath is None:
+			messageBox = QMessageBox(parent=self)
+			messageBox.setWindowTitle("mysqlsh location")
+			messageBox.setText("The program 'mysqlsh' was not found in the system path. Please select the program location.")
+			messageBox.exec()
+			mysqlshPath = QFileDialog.getOpenFileName(self, "Select mysqlsh program", "/home/")[0]
+			if mysqlshPath == "":
+				dlgError(parent=None, message="mysqlsh not found or selected")
+				return
+		# create backup
+		argList = [mysqlshPath, "--passwords-from-stdin", "--js", "-u", self.userInfo["un"], "-h", self.userInfo["host"],
+			 "-e", 'util.dumpSchemas(["%s"], "%s")' % (self.cnx.database, tempFile)]
+		# print(subprocess.list2cmdline(argList))
+		# sending password as stdin
+		shellOut = subprocess.run(argList, input=self.userInfo["pw"], text=True)
+		messageBox = QMessageBox(parent=self)
+		if shellOut.returncode == 0:
+			messageBox.setWindowTitle("Complete")
+			messageBox.setText("Backup created.")
+		else:
+			messageBox.setWindowTitle("Error")
+			messageBox.setText("Error creating backup.")
+		messageBox.exec()
+
+	# import from a backup folder using mysql shell
+	def useBackupMysqlsh(self):
+		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
+			dlgError(parent = self, message="Error, not connected to a database")
+			return
+		# warnings
+		messageBox = QMessageBox(parent=self)
+		messageBox.setWindowTitle("Warnings")
+		messageBox.setText(" The program 'mysqlsh' will be used. Depending on your system and database, this could be slow. An alternative option" +
+					" is to use the 'MySQL Shell' utilities directly ('util.dumpSchemas()' to generate backup files and" +
+					 " 'util.loadDump()' to load the backup files as needed) for more control.")
+		messageBox.exec()
+
+		# get backup directory
+		backupFile = QFileDialog.getExistingDirectory(self, "Select mysqlsh backup folder", "/home/")
+		if backupFile == "":
+			dlgError(parent = self, message="Backup folder not selected.")
+			return
+		# find mysqlsh
+		mysqlshPath = shutil.which("mysqlsh")
+		if mysqlshPath is None:
+			messageBox = QMessageBox(parent=self)
+			messageBox.setWindowTitle("mysqlsh location")
+			messageBox.setText("The program 'mysqlsh' was not found in the system path. Please select the program location.")
+			messageBox.exec()
+			mysqlshPath = QFileDialog.getOpenFileName(self, "Select mysqlsh program", "/home/")[0]
+			if mysqlshPath == "":
+				dlgError(parent=None, message="mysqlsh not found or selected")
+				return
+		mod_infile = False # tracking whether switched global variable 'local_infile'
+		# check setting
+		with self.cnx.cursor() as curs:
+			curs.execute("SHOW GLOBAL VARIABLES LIKE 'local_infile'")
+			local_infile = curs.fetchone()[1]
+			# modify if needed
+			if local_infile != "ON":
+				mod_infile = True
+			curs.execute("SET GLOBAL local_infile = 'ON'")
+
+		# load backup
+		argList = [mysqlshPath, "--passwords-from-stdin", "--js", "-u", self.userInfo["un"], "-h", self.userInfo["host"],
+			 "-e", 'util.loadDump("%s")' % (backupFile)]
+		# print(subprocess.list2cmdline(argList))
+		# sending password as stdin
+		shellOut = subprocess.run(argList, input=self.userInfo["pw"], text=True)
+
+		# change back local_infile setting if needed
+		if mod_infile:
+			with self.cnx.cursor() as curs:
+				curs.execute("SET GLOBAL local_infile = '%s'" % local_infile)
+
+		messageBox = QMessageBox(parent=self)
+		if shellOut.returncode == 0:
+			messageBox.setWindowTitle("Complete")
+			messageBox.setText("Backup imported.")
+		else:
+			messageBox.setWindowTitle("Error")
+			messageBox.setText("Error importing from backup.")
 		messageBox.exec()
