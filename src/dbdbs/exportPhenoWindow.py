@@ -81,6 +81,10 @@ class exportPhenoWindow(QDialog):
 		self.gridLayout.addWidget(QLabel("Output file:"), 1, 1)
 		self.gridLayout.addWidget(self.outputFile, 1, 2)
 		
+		# add labels for column selection lists
+		self.gridLayout.addWidget(QLabel("Columns to export"), 2, 0)
+		self.gridLayout.addWidget(QLabel("Columns to filter on"), 2, 2)
+		
 		# layout for input file button and display of selected file name
 		self.colSelectLayout = QHBoxLayout()
 		self.colSelectLayout.addWidget(self.colsToExportListW)

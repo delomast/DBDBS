@@ -99,16 +99,16 @@ class interactWindow(QMainWindow):
 		deleteDataButton = QPushButton("Delete data")
 		deleteDataButton.clicked.connect(self.deleteData)
 
-		# TODO remove genotypes
-		# TODO remove phenoptypes
-		# TODO remove individuals from the pedigree
 		# TODO documentation
 		# TODO table info screen/export
 		# TODO genotype info screen/export
-
-
-
-
+		# TODO pedigree export options
+		#  current is selected inds and all ancestors
+		#  add 1)just selected inds
+		#  2) selected inds and descendents
+		#  3) selected inds and all relatives (ancestors and descendents)
+		# TODO multi and hyper genotype export as codes and translation list
+		# TODO plink binary input and output 
 
 
 		# Information displayed about the connection
