@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbdbs"
+version = "0.0.1"
+authors = [
+  { name="Tom Delomas", email="thomas.delomas@usda.gov" },
+]
+description = "A MySQL database interface for storing genotype, phenotype, and pedigree data"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license-files = ["LICENSE"]
+dependencies = ["PyQt6", "mysql-connector-python==9.0.0"]
+keywords = ["breeding", "genotype", "genomic", "selection", "pedigree", "phenotype"]
+
+[project.urls]
+Homepage = "https://github.com/delomast/dbdbs"
+Issues = "https://github.com/delomast/dbdbs/issues"
+
+[tool.setuptools.package-data]
+"dbdbs.sql" = ["*.sql"]
+"dbdbs.interface_db" = ["dbdbs.sqlite"]

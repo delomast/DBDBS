@@ -17,10 +17,16 @@ class loginDialog(QDialog):
 		self.setWindowTitle("DBDBS")
 
 		# check if gui database exists and open
-		db_exists = os.path.exists(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"))
-		if db_exists:
-			self.gui_db = sqlite3.connect(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"),
+		self.gui_db = sqlite3.connect(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"),
 						detect_types=sqlite3.PARSE_DECLTYPES)
+		curs = self.gui_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+		tbls = [x[0] for x in curs]
+		curs.close()
+		if "db_info" not in tbls:
+			db_exists = False
+			self.gui_db.close()
+		else:
+			db_exists = True
 
 		# define widgets
 		self.hostBox = QComboBox() # host address

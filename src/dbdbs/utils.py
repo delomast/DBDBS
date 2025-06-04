@@ -17,16 +17,15 @@ class dlgError(QMessageBox):
 		self.exec()
 
 def saveInfo(userInfo : dict):
-	# check if directory exists and make if not
-	if not os.path.isdir(os.path.join(PACKAGEDIR, "interface_db")):
-		os.mkdir(os.path.join(PACKAGEDIR, "interface_db"))
-
-	# check if database exists and initialize if not
-	db_exists = os.path.exists(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"))
+	# directory and empty dbdbs.sqlite file included as part of the package
 	# connect/create
 	gui_db = sqlite3.connect(os.path.join(PACKAGEDIR, "interface_db/dbdbs.sqlite"),
 					detect_types=sqlite3.PARSE_DECLTYPES)
-	if not db_exists:
+	# check if database exists and initialize if not
+	curs = gui_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+	tbls = [x[0] for x in curs]
+	curs.close()
+	if "db_info" not in tbls:
 		# create empty tables
 		with open(os.path.join(PACKAGEDIR, "sql/gui_initialize.sql"), mode="r", encoding = "utf-8") as f:
 			gui_db.executescript(f.read())
