@@ -1,9 +1,13 @@
 Database interface for storing genotype, phenotype, and pedigree information
 
-Requires PyQt6, MySQL Connector-Python (tested with 9.0.0)
+Requires Python 3, PyQt6, MySQL Connector-Python (tested with 9.0.0)
 Example of how to install using pip
 ```
 python -m pip install git+https://github.com/delomast/DBDBS
+```
+Example of how to open the interface
+```
+python -m dbdbs
 ```
 
 This software is a "United States Government Work" under the terms of the United States Copyright Act. It was written as part of the author's official duties as a United States Government employee and thus cannot be copyrighted. This software is freely available to the public for use.
