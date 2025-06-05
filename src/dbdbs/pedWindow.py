@@ -139,6 +139,10 @@ class pedWindow(QDialog):
 	# considering adding - 3) a group of individuals and all their 
 	# relatives (ancestors and descendents)
 	def exportPedigree(self):
+		# make sure output file is specified
+		if self.outputFile.text() == "":
+			dlgError(parent=self, message="You must specify an output file name.")
+			return
 		# get pedigree
 		curs = self.cnx.cursor()
 		if self.inputFile.text() == "":
