@@ -73,7 +73,7 @@ def saveInfo(userInfo : dict):
 # using one length for simplicity even though some (e.g., db name) could be longer
 # returns True for good syntax, False for bad
 def identifier_syntax_check(ident :  str) -> bool:
-	if not re.fullmatch("^.{1,50}$", ident) or re.search("^\\$| $|^IntDB|`", ident, flags=re.IGNORECASE):
+	if not re.fullmatch("^.{1,50}$", ident) or re.search(r"^\s|\s$|^IntDB|`|'|\"|\\|/",  ident, flags=re.IGNORECASE):
 		return False
 	if "\\" in ident:
 		return False
