@@ -3,6 +3,7 @@ interface_db/
 archive/
 outputTest/
 plinkFiles/
+testInputs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
