@@ -469,6 +469,9 @@ class importPhenoWindow(QDialog):
 
 			# check format of all unique values
 			for val in v:
+				# skip missing values where allowed
+				if k != self.dt_col and val == "":
+					continue
 				# check format
 				if sqlVarType == "int":
 					try:
@@ -592,18 +595,28 @@ class importPhenoWindow(QDialog):
 					sqlValueSubString += ["%s"] # no quotes
 				else:
 					sqlValueSubString += ["'%s'"]
-			sqlValueSubString = "(" + ",".join(sqlValueSubString) + "),"
-			# makes something like "(%s,'%s','%s','%s',%s,'%s'),"
+			# makes something like [%s,'%s','%s','%s',%s,'%s']
+			# save positions where we need to change empty string to NULL
+			toNULL = [i for i in range(0, len(h)) if i != DTpos and i not in IDpos]
 			# add all rows to the statement
 			for line in f:
+				# sep is split line from input file
 				sep = line.rstrip("\n").split("\t")
-				# convert individual names to internal ID numbers
+				# adding quotes as needed by sustituting into sqlValueString items
 				for i in IDpos:
-					sep[i] = indIDlookup[sep[i]]
-				sqlState += sqlValueSubString % tuple(sep)
+					# convert individual names to internal ID numbers
+					sep[i] = sqlValueSubString[i] % indIDlookup[sep[i]]
+				sep[DTpos] = sqlValueSubString[DTpos] % sep[DTpos]
+				# change missing values to NULL for columns that allow missing values
+				for i in toNULL:
+					if sep[i] == "":
+						sep[i] = "NULL"
+					else:
+						sep[i] = sqlValueSubString[i] % sep[i]
+				sqlState += "(" + ",".join(sep) + "),"
+		# execute the SQL INSERT statement
 		with self.cnx.cursor() as curs:
 			curs.execute(sqlState.rstrip(","))
-
 
 	# update phenotypes in database by overwriting existing phenotypes
 	def updatePhenos(self, indIDlookup, sqlVarTypeDict):
@@ -625,11 +638,7 @@ class importPhenoWindow(QDialog):
 					if i in IDpos or i == DTpos:
 						continue
 					sqlColOrder += [i]
-					sqlState += h[i] + "="
-					if sqlVarTypeDict[h[i]] == "double" or sqlVarTypeDict[h[i]] == "int":
-						sqlState += "{a[%s]}," % i # no quotes
-					else:
-						sqlState += "'{a[%s]}'," % i
+					sqlState += h[i] + "={a[%s]}," % i # no quotes, adding later as needed
 				sqlState = sqlState.rstrip(",") # remove last comma
 				sqlColOrder += IDpos
 				sqlColOrder += [DTpos]
@@ -639,12 +648,20 @@ class importPhenoWindow(QDialog):
 				else:
 					sqlState += "intDBind_id={a[%s]} AND intDBu_DTobs='{a[%s]}'" % tuple(IDpos + [DTpos])
 				# sqlState is now something like
-				# UPDATE `%s` SET var1={a[2]},var2='{a[3]}',var3={a[4]} WHERE indDBind_id={a[0]} AND intDBu_DTobs='{a[1]}'
+				# UPDATE `table` SET var1={a[2]},var2={a[3]},var3={a[4]} WHERE indDBind_id={a[0]} AND intDBu_DTobs='{a[1]}'
 
+				# save positions where we need to change empty string to NULL
+				toNULL = [i for i in range(0, len(h)) if i != DTpos and i not in IDpos]
 				# update each observation in input
 				for line in f:
 					sep = line.rstrip("\n").split("\t")
 					# convert individual names to internal ID numbers
 					for i in IDpos:
 						sep[i] = indIDlookup[sep[i]]
+					# convert to NULL and add quotes as needed
+					for i in toNULL:
+						if sep[i] == "":
+							sep[i] = "NULL"
+						elif sqlVarTypeDict[h[i]] != "double" and sqlVarTypeDict[h[i]] != "int":
+							sep[i] = "'%s'" % sep[i] # add quotes
 					curs.execute(sqlState.format(a = sep))

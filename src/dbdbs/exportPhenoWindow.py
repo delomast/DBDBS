@@ -303,7 +303,7 @@ class exportPhenoWindow(QDialog):
 				fout.write("\t".join([x.text() for x in self.colsToExportListW.selectedItems()]) + "\n")
 				# write out each line
 				for x in curs:
-					fout.write("\t".join([str(y) for y in x]) + "\n")
+					fout.write("\t".join([str(y) if y is not None else "" for y in x]) + "\n")
 
 		# generate message box stating the export is done
 		messageBox = QMessageBox(parent=self)
