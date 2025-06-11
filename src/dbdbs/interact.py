@@ -72,8 +72,8 @@ class interactWindow(QMainWindow):
 		useBackupdump_button.setStatusTip("This uses a backup file created by mysqldump to create a new database")
 		useBackupdump_button.triggered.connect(self.useBackupMysqldump)
 		# create a backup file with mysqlsh
-		createBackupsh_button = QAction("Create a database backup file - mysqlsh", self)
-		createBackupsh_button.setStatusTip("This uses a local copy of the mysqlsh program to create a backup file")
+		createBackupsh_button = QAction("Create a database backup folder - mysqlsh", self)
+		createBackupsh_button.setStatusTip("This uses a local copy of the mysqlsh program to create a backup folder")
 		createBackupsh_button.triggered.connect(self.createBackupMysqlsh)
 		# load a mysqlsh backup file
 		useBackupsh_button = QAction("Restore a database from a mysqlsh backup folder", self)
