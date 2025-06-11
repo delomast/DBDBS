@@ -95,6 +95,22 @@ def indNameSyntaxCheck(name : str) -> bool:
 		return False
 	return True
 
+# check that an individual name is valid syntax
+# 2000 or less bytes with utf8
+# not equal to empty string
+# does not contain single quote ' or backslash \
+# return False if invalid, otherwise True
+def locNameSyntaxCheck(name : str) -> bool:
+	if len(name.encode("utf-8")) > 2000:
+		return False
+	if name == "":
+		return False
+	if "'" in name:
+		return False
+	if "\\" in name:
+		return False
+	return True
+
 # check that an allele is valid syntax
 # 255 or less bytes with utf8
 # not equal to empty string

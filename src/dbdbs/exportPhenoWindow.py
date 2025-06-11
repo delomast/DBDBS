@@ -69,6 +69,7 @@ class exportPhenoWindow(QDialog):
 		self.outputFileButton = QPushButton("Choose output file")
 		self.outputFileButton.clicked.connect(self.chooseOutputFileDialog)
 		self.outputFile = QLabel("")
+		self.outputFile.setWordWrap(True)
 
 		# set up layout
 		self.gridLayout = QGridLayout()

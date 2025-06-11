@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import (
 	 QFileDialog, QVBoxLayout, QSpinBox, QTextEdit, QDialog
 )
 from .utils import (dlgError, identifier_syntax_check, alleleSyntaxCheck,
-	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel
+	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel,
+	locNameSyntaxCheck
 )
 from collections import deque
 from itertools import combinations_with_replacement
@@ -162,7 +163,7 @@ class newPanelWindow(QDialog):
 					if "'" in line[i] or line[i].endswith("\\"):
 						dlgError(parent = self, message="Invalid character in locus \"%s\" column \"%s\"" % (line[locName_pos], colNames[i]))
 				# make sure locus names are valid identifiers
-				if not identifier_syntax_check(line[locName_pos]):
+				if not locNameSyntaxCheck(line[locName_pos]):
 					dlgError(parent=self, message="Locus \"%s\" has an invalid name" % line[locName_pos])
 					return
 				# Make sure alt allele, ref allele, and alleles are valid values, if present (no whitespace, no single quotes, unique)
@@ -249,7 +250,7 @@ class newPanelWindow(QDialog):
 			if colTypes[i] in ("INTEGER", "DOUBLE"):
 				insertString += "%s" # no quotes for numbers
 			else:
-				insertString += "'%s'" # single quotes for string literals
+				insertString += "'%s'" # single quotes for string literals and dates
 		sqlState += ")"
 		insertString += "),"
 		

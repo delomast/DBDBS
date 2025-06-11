@@ -109,6 +109,7 @@ class interactWindow(QMainWindow):
 		#  3) selected inds and all relatives (ancestors and descendents)
 		# TODO multi and hyper genotype export as codes and translation list
 		# TODO plink binary input and output 
+		# TODO enforce min/max in phenotype table definitions with CHECK constraint on column
 
 
 		# Information displayed about the connection
@@ -525,8 +526,8 @@ class interactWindow(QMainWindow):
 
 	# import from a backup folder using mysql shell
 	def useBackupMysqlsh(self):
-		if (not hasattr(self, "cnx")) or self.cnx.database == "" or self.cnx.database is None:
-			dlgError(parent = self, message="Error, not connected to a database")
+		if not hasattr(self, "cnx"):
+			dlgError(parent = self, message="Error, not connected to a server")
 			return
 		# warnings
 		messageBox = QMessageBox(parent=self)
@@ -578,6 +579,10 @@ class interactWindow(QMainWindow):
 		if shellOut.returncode == 0:
 			messageBox.setWindowTitle("Complete")
 			messageBox.setText("Backup imported.")
+			# reset connection
+			self.cnx.close()
+			del self.cnx
+			self.dbConnect(self.userInfo)
 		else:
 			messageBox.setWindowTitle("Error")
 			messageBox.setText("Error importing from backup.")
