@@ -75,8 +75,6 @@ def saveInfo(userInfo : dict):
 def identifier_syntax_check(ident :  str) -> bool:
 	if not re.fullmatch("^.{1,50}$", ident) or re.search(r"^\s|\s$|^IntDB|`|'|\"|\\|/",  ident, flags=re.IGNORECASE):
 		return False
-	if "\\" in ident:
-		return False
 	return True
 
 # check that an individual name is valid syntax
@@ -130,6 +128,12 @@ def alleleSyntaxCheck(allele : str) -> bool:
 	if re.search(r"\s", allele):
 		return False
 	return True
+
+# escape special characters \ and ' as needed in strings before insert into mysql
+def escapeStringChar(x : str):
+	# need to escape \ and '
+	x.replace("\\", "\\\\").replace("'", "\\'")
+	return x
 
 # calculate number of possible genotypes given the number
 #  of alleles and the ploidy

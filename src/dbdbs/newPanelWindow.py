@@ -7,10 +7,11 @@ from PyQt6.QtWidgets import (
 )
 from .utils import (dlgError, identifier_syntax_check, alleleSyntaxCheck,
 	getCursLociAlleles, getConnection, numBits, numGenotypes, removePartialPanel,
-	locNameSyntaxCheck
+	locNameSyntaxCheck, escapeStringChar
 )
 from collections import deque
 from itertools import combinations_with_replacement
+import re
 
 # using QDialog class and exec to block other windows - only one active window at a time
 class newPanelWindow(QDialog):
@@ -145,7 +146,9 @@ class newPanelWindow(QDialog):
 		vChar = [i for i in range(0,len(colTypes)) if colTypes[i] in ("Locus name", "VARCHAR", "Alt allele", "Ref allele", "Alleles")]
 		locName_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "Locus name"][0]
 		toCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] in ("Alt allele", "Ref allele", "Alleles")]
-		otherCol_pos = [i for i in range(0,len(colTypes)) if colTypes[i] not in ("Alt allele", "Ref allele", "Alleles", "Locus name")]
+		dateCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "DATE"]
+		intCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "INTEGER"]
+		doubleCheck_pos = [i for i in range(0,len(colTypes)) if colTypes[i] == "DOUBLE"]
 		maxLen = [0] * len(vChar)
 		locusNames = set()
 		locusCount = 0 # number of loci in panel definition file
@@ -158,14 +161,38 @@ class newPanelWindow(QDialog):
 				for i in range(0, len(vChar)):
 					if len(line[vChar[i]]) > maxLen[i]:
 						maxLen[i] = len(line[vChar[i]])
-				# make sure no characters to mess up sql insert statement
-				for i in otherCol_pos:
-					if "'" in line[i] or line[i].endswith("\\"):
-						dlgError(parent = self, message="Invalid character in locus \"%s\" column \"%s\"" % (line[locName_pos], colNames[i]))
-				# make sure locus names are valid identifiers
+				# make sure locus names are valid
 				if not locNameSyntaxCheck(line[locName_pos]):
 					dlgError(parent=self, message="Locus \"%s\" has an invalid name" % line[locName_pos])
 					return
+				# check date, integer, and double format
+				for i in dateCheck_pos:
+					if re.fullmatch("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", line[i]) is None:
+						dlgError(parent=None, message="%s for locus %s does not conform to the MySQL date format of 'YYYY-MM-DD'" % (line[i], line[locName_pos]))
+						return
+					# check year, month, and day values
+					dateSep = [int(x) for x in line[i].split("-")]
+					if dateSep[0] < 1000: #or dateSep[0] > 9999 # > 9999 is impossible with int of four characters
+						dlgError(parent=None, message="%s for locus %s has an invalid value for year" % (line[i], line[locName_pos]))
+						return
+					if dateSep[1] < 1 or dateSep[1] > 12:
+						dlgError(parent=None, message="%s for locus %s has an invalid value for month" % (line[i], line[locName_pos]))
+						return
+					if dateSep[2] < 1 or dateSep[2] > 31:
+						dlgError(parent=None, message="%s for locus %s has an invalid value for day" % (line[i], line[locName_pos]))
+						return
+				for i in intCheck_pos:
+					try:
+						temp = int(line[i])
+					except:
+						dlgError(parent=None, message="Error converting %s to an integer for locus %s" % (line[i], line[locName_pos]))
+						return
+				for i in doubleCheck_pos:
+					try:
+						temp = float(line[i])
+					except:
+						dlgError(parent=None, message="Error converting %s to a number for locus %s" % (line[i], line[locName_pos]))
+						return
 				# Make sure alt allele, ref allele, and alleles are valid values, if present (no whitespace, no single quotes, unique)
 				if len(toCheck_pos) == 2:
 					# ref and alt
@@ -254,6 +281,9 @@ class newPanelWindow(QDialog):
 		sqlState += ")"
 		insertString += "),"
 		
+		# positions to escape special characters
+		charEscape = [i for i in range(0, len(colTypes)) if colTypes[i] in ("VARCHAR", "TEXT")]
+
 		# execute on MySQL server
 		with self.cnx.cursor() as curs:
 			# create panel information table
@@ -267,6 +297,8 @@ class newPanelWindow(QDialog):
 				rowCounter = 0
 				while line:
 					line = line.rstrip("\n").split("\t")
+					for i in charEscape:
+						line[i] = escapeStringChar(line[i])
 					sqlState += insertString % tuple(line)
 					rowCounter += 1
 					if rowCounter == self.batchSizeSpinnerBox.value():

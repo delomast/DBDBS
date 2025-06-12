@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 	QFileDialog, QVBoxLayout, QDoubleSpinBox, QTextEdit, QDialog
 )
 from PyQt6.QtCore import Qt
-from .utils import (dlgError, identifier_syntax_check)
+from .utils import (dlgError, identifier_syntax_check, escapeStringChar)
 
 # using QDialog class and exec to block other windows - only one active window at a time
 class newPhenoTableWindow(QDialog):
@@ -222,7 +222,7 @@ class newPhenoTableWindow(QDialog):
 			else:
 				timeColName = colNames[colItems.index("u_DATETIME")]
 
-			sqlValues = [self.tableNameBox.text(), timeColName, len(colNames) - 2, self.tableDescBox.toPlainText()]
+			sqlValues = [self.tableNameBox.text(), timeColName, len(colNames) - 2, escapeStringChar(self.tableDescBox.toPlainText())]
 			if self.indivRadio.isChecked():
 				sqlState += "ind_name_col) VALUES ('%s','%s',%s,'%s','%s')"
 				sqlValues += [colNames[colItems.index("ind_name")]]
@@ -246,9 +246,9 @@ class newPhenoTableWindow(QDialog):
 					if self.columnMin[i].value() > self.columnMax[i].value():
 						dlgError("Min must be less than Max for %s." % colNames[i])
 						return
-					sqlState2 += "('%s', '%s', '%s', %s, %s)," % (self.tableNameBox.text(), colNames[i], self.columnDescription[i].toPlainText(), self.columnMin[i].value(), self.columnMax[i].value())
+					sqlState2 += "('%s', '%s', '%s', %s, %s)," % (self.tableNameBox.text(), colNames[i], escapeStringChar(self.columnDescription[i].toPlainText()), self.columnMin[i].value(), self.columnMax[i].value())
 				else:
-					sqlState2 += "('%s', '%s', '%s', NULL, NULL)," % (self.tableNameBox.text(), colNames[i], self.columnDescription[i].toPlainText())
+					sqlState2 += "('%s', '%s', '%s', NULL, NULL)," % (self.tableNameBox.text(), colNames[i], escapeStringChar(self.columnDescription[i].toPlainText()))
 			# execute statements
 			curs.execute(sqlState % sqlValues) # executing later in case input error found during min/max
 			if not sqlState2.endswith("VALUES"):

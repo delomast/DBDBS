@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 )
 import re
 from .utils import (dlgError, 
-	indsInPedigree, addToPedigree, getIndIDdict
+	indsInPedigree, addToPedigree, getIndIDdict, escapeStringChar
 )
 
 # using QDialog class and exec to block other windows - only one active window at a time
@@ -364,8 +364,7 @@ class importPhenoWindow(QDialog):
 		else:
 			# file has some that are not in the table - error
 			return 4
-
-
+	
 	# import phenotypes
 	# checks loop through the file many times
 	# potential to speed up by combining into one function and/or looping through 
@@ -598,10 +597,15 @@ class importPhenoWindow(QDialog):
 			# makes something like [%s,'%s','%s','%s',%s,'%s']
 			# save positions where we need to change empty string to NULL
 			toNULL = [i for i in range(0, len(h)) if i != DTpos and i not in IDpos]
+			# save positions to escape special characters
+			toEscape = [i for i in range(0, len(h)) if sqlVarTypeDict[h[i]] in ("varchar", "text")]
 			# add all rows to the statement
 			for line in f:
 				# sep is split line from input file
 				sep = line.rstrip("\n").split("\t")
+				# escape special characters
+				for i in toEscape:
+					sep[i] = escapeStringChar(sep[i])
 				# adding quotes as needed by sustituting into sqlValueString items
 				for i in IDpos:
 					# convert individual names to internal ID numbers
@@ -652,9 +656,14 @@ class importPhenoWindow(QDialog):
 
 				# save positions where we need to change empty string to NULL
 				toNULL = [i for i in range(0, len(h)) if i != DTpos and i not in IDpos]
+				# save positions to escape special characters
+				toEscape = [i for i in range(0, len(h)) if sqlVarTypeDict[h[i]] in ("varchar", "text")]
 				# update each observation in input
 				for line in f:
 					sep = line.rstrip("\n").split("\t")
+					# escape special characters
+					for i in toEscape:
+						sep[i] = escapeStringChar(sep[i])
 					# convert individual names to internal ID numbers
 					for i in IDpos:
 						sep[i] = indIDlookup[sep[i]]

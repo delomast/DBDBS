@@ -100,14 +100,14 @@ class interactWindow(QMainWindow):
 		deleteDataButton.clicked.connect(self.deleteData)
 
 		# TODO documentation
-		# TODO table info screen/export
+		# TODO phenotype table info screen/export
 		# TODO genotype info screen/export
 		# TODO pedigree export options
 		#  current is selected inds and all ancestors
 		#  add 1)just selected inds
 		#  2) selected inds and descendents
 		#  3) selected inds and all relatives (ancestors and descendents)
-		# TODO multi and hyper genotype export as codes and translation list
+		# TODO multi and hyper genotype export and import as codes and translation list
 		# TODO plink binary input and output 
 		# TODO enforce min/max in phenotype table definitions with CHECK constraint on column
 
