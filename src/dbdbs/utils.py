@@ -132,7 +132,7 @@ def alleleSyntaxCheck(allele : str) -> bool:
 # escape special characters \ and ' as needed in strings before insert into mysql
 def escapeStringChar(x : str):
 	# need to escape \ and '
-	x.replace("\\", "\\\\").replace("'", "\\'")
+	x = x.replace("\\", "\\\\").replace("'", "\\'")
 	return x
 
 # calculate number of possible genotypes given the number

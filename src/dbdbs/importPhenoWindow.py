@@ -657,7 +657,7 @@ class importPhenoWindow(QDialog):
 				# save positions where we need to change empty string to NULL
 				toNULL = [i for i in range(0, len(h)) if i != DTpos and i not in IDpos]
 				# save positions to escape special characters
-				toEscape = [i for i in range(0, len(h)) if sqlVarTypeDict[h[i]] in ("varchar", "text")]
+				toEscape = [i for i in range(0, len(h)) if i not in IDpos and sqlVarTypeDict[h[i]] in ("varchar", "text")]
 				# update each observation in input
 				for line in f:
 					sep = line.rstrip("\n").split("\t")
