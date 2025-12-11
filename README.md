@@ -1,6 +1,8 @@
 Database interface for storing genotype, phenotype, and pedigree information
 
 Requires Python 3, PyQt6, MySQL Connector-Python (tested with 9.0.0)
+See the file **Documentation.pdf** for full documentation.
+
 Example of how to install using pip
 ```
 python -m pip install git+https://github.com/delomast/DBDBS
