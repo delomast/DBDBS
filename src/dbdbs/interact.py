@@ -99,7 +99,8 @@ class interactWindow(QMainWindow):
 		deleteDataButton = QPushButton("Delete data")
 		deleteDataButton.clicked.connect(self.deleteData)
 
-		# TODO documentation
+		# TODO plink binary input and output
+		# TODO proper plink map and bim output
 		# TODO phenotype table info screen/export
 		# TODO genotype info screen/export
 		# TODO pedigree export options
@@ -107,8 +108,7 @@ class interactWindow(QMainWindow):
 		#  add 1)just selected inds
 		#  2) selected inds and descendents
 		#  3) selected inds and all relatives (ancestors and descendents)
-		# TODO multi and hyper genotype export and import as codes and translation list
-		# TODO plink binary input and output 
+		# TODO multi and hyper genotype export and import as codes and translation list 
 		# TODO enforce min/max in phenotype table definitions with CHECK constraint on column
 
 

@@ -224,7 +224,7 @@ class exportPhenoWindow(QDialog):
 		# add quotes for column names as needed
 		for i in range(0, len(colsToExport)):
 			if colsToExport[i] not in (self.ind_col, self.sire_col, self.dam_col):
-				colsToExport[i] = "`%s`" % colsToExport[i]
+				colsToExport[i] = "`%s`.`%s`" % (self.tableComboBox.currentText(), colsToExport[i])
 		# add left join statements to translate ID numbers into names
 		for i in range(0,3):
 			col = (self.ind_col, self.sire_col, self.dam_col)[i]
@@ -246,11 +246,12 @@ class exportPhenoWindow(QDialog):
 			# +1 to range b/c button is first widget in the layout
 			for i in range(1, len(self.colsToFilterListW.selectedItems())+1):
 				# get filter criteria and add to sql statement
-				filVals = [self.vertLayoutFilter.itemAt(i).widget().name()]
+				# note we are already including backtick quotes for table and column names
+				filVals = ["`%s`.`%s`" % (self.tableComboBox.currentText(), self.vertLayoutFilter.itemAt(i).widget().name())]
 				if self.vertLayoutFilter.itemAt(i).widget().varType in ("int", "double"):
 					filVals += [self.vertLayoutFilter.itemAt(i).widget().min.value(),
 								self.vertLayoutFilter.itemAt(i).widget().max.value()]
-					sqlState += "`{a[0]}` >= {a[1]} AND `{a[0]}` <= {a[2]}".format(a = filVals)
+					sqlState += "{a[0]} >= {a[1]} AND {a[0]} <= {a[2]}".format(a = filVals)
 				elif self.vertLayoutFilter.itemAt(i).widget().varType in ("date", "datetime"):
 					if self.vertLayoutFilter.itemAt(i).widget().varType == "date":
 						filVals += [self.vertLayoutFilter.itemAt(i).widget().start.date().toString("yyyy-MM-dd"),
@@ -261,7 +262,7 @@ class exportPhenoWindow(QDialog):
 					if self.vertLayoutFilter.itemAt(i).widget().name() == self.dt_col:
 						# change colname to internal name
 						filVals[0] = "intDBu_DTobs"
-					sqlState += "`{a[0]}` >= '{a[1]}' AND `{a[0]}` <= '{a[2]}'".format(a = filVals)
+					sqlState += "{a[0]} >= '{a[1]}' AND {a[0]} <= '{a[2]}'".format(a = filVals)
 				elif self.vertLayoutFilter.itemAt(i).widget().varType in ("varchar", "text", "indID"):
 					if self.vertLayoutFilter.itemAt(i).widget().fileLabel.text() == "":
 						# get values from lineEdit
@@ -288,7 +289,7 @@ class exportPhenoWindow(QDialog):
 						# if not indID add quotes
 						validValues = ["'%s'" % x for x in validValues]
 					filVals += [",".join(validValues)]
-					sqlState += "`{a[0]}` IN ({a[1]})".format(a = filVals)
+					sqlState += "{a[0]} IN ({a[1]})".format(a = filVals)
 
 				# add AND if needed
 				if i < len(self.colsToFilterListW.selectedItems()):

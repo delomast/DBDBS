@@ -5,6 +5,7 @@
 		}
 	],
 	"settings": {
-		"github.gitAuthentication": true
+		"github.gitAuthentication": true,
+		"nextflow.telemetry.enabled": false
 	}
 }
