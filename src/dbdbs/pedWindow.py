@@ -87,7 +87,7 @@ class pedWindow(QDialog):
 	# change info about header in input file
 	def onActionSelectionChange(self):
 		if self.exportRadio.isChecked():
-			self.inputFileHeaderInfo.setText("Input file optional, no header row")
+			self.inputFileHeaderInfo.setText("Input file optional, header row required")
 		elif self.addNewRadio.isChecked() or self.updateRadio.isChecked():
 			self.inputFileHeaderInfo.setText("Three column input file (Ind, Sire, Dam), header row required")
 		else:

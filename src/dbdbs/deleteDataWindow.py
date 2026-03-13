@@ -124,7 +124,7 @@ class deleteDataWindow(QDialog):
 				else:
 					famTable = False
 				# get dict to change ind names to ids
-				if famTable is None:
+				if famTable is True:
 					inds = set([x[0] for x in toRem]).union(set([x[1] for x in toRem]))
 				else:
 					inds = set([x[0] for x in toRem])
